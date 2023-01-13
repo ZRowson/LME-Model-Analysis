@@ -1,0 +1,6 @@
+"0","# Transform data"
+"0","# Optimal lambda"
+"0","data.L.lam <- copy(data.L)"
+"0","data.L.lam[, lamy := (y+1)^(lam.L)]"
+"2","Error in eval(jsub, SDenv, parent.frame()) : object 'lam.L' not found
+"

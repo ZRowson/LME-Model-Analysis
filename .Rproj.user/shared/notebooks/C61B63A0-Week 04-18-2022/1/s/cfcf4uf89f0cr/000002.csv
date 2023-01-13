@@ -1,0 +1,7 @@
+"0","tTable.L <- as.data.frame(summary(lmm2.L.REML)$tTable[-c(1,11,12),])"
+"0","rownames(tTable.L) <- c(paste(rownames(tTable.L)[1:9], ""B_0""),"
+"0","                        paste(rownames(tTable.L)[1:9], ""B_1""),"
+"0","                        paste(rownames(tTable.L)[1:9], ""B_2""))"
+"0","pVal <- format(tTable.L[,""p-value""], scientific = FALSE)"
+"0","tTable.L[,""p-value""] <- gsub('.{9}$', '', pVal)"
+"0","tTable.L"

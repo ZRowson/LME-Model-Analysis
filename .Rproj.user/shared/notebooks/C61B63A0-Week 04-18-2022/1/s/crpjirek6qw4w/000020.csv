@@ -1,0 +1,7 @@
+"0","ggplot(data.L.sqrt, aes(x=t,y=sqrty,group=conc)) + "
+"0","  stat_summary(fun = mean, geom=""line"", color=""grey"") +"
+"0","  stat_summary(mapping=aes(color=conc), fun = mean, geom=""point"", size=1) +"
+"0","  geom_line(fittedDF, mapping = aes(x=t,y=fit,color=as.factor(conc))) + "
+"0","  labs(title=""Loperamide Light Data and Models: Square-Root Transformed"","
+"0","       color=""Conc"","
+"0","       x=""Time"", y=""Square-Root(y)"")"

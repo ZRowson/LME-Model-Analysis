@@ -1,0 +1,2 @@
+"0","lmm.L.REML <- readRDS(""../fits/Loperamide_L_LME.rds"")"
+"0","lmm.D.REML <- readRDS(""../fits/Loperamide_D_LME.rds"")"

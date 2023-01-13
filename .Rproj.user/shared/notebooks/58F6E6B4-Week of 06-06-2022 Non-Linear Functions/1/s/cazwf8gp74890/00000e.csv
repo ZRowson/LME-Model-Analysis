@@ -1,0 +1,6 @@
+"0","nls(sqrty ~ logist(t, AsymU, AsymL, xmid, scal),"
+"0","    start = c(AsymU=1.75, AsymL=0.75, xmid=-3, scal=1.5),"
+"0","    data = sample.L)"
+"2","Error in nlsModel(formula, mf, start, wts) : 
+  singular gradient matrix at initial parameter estimates
+"

@@ -1,0 +1,1 @@
+"0","plot(lmm3.4rt, resid(.,level=0) ~ fitted(.,level=0), abline = 0, main=""Residuals vs. Fitted Values Level=0: lmm3.4rt"")"

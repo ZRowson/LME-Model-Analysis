@@ -1,0 +1,3 @@
+"0","list.D <- lmList(sqrty ~ poly(t,degree=2,raw=TRUE), Dark.sqrt)"
+"0",""
+"0","pairs(list.D, id = 0.01)"

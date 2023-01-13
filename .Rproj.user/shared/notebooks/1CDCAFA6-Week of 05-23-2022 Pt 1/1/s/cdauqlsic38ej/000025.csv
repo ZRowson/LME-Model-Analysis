@@ -1,0 +1,19 @@
+"0","lmm.D.1 <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+             data = Dark.sqrt,
+             random = reStruct(~poly(t,degree=2,raw=TRUE)|fishID,REML=FALSE,pdClass=""pdSymm""),
+             correlation = corAR1(,form=~t|fishID),
+             weights = varConstPower(),
+             method = ""ML"",
+             control = ctrl)
+"
+"2","Singular precision matrix in level -1, block 1"
+"2","Singular precision matrix in level -1, block 1"
+"2","Singular precision matrix in level -1, block 1"
+"2","Singular precision matrix in level -1, block 1"
+"2","Singular precision matrix in level -1, block 1"
+"2","Singular precision matrix in level -1, block 1"
+"2","Singular precision matrix in level -1, block 1"
+"2","Singular precision matrix in level -1, block 1"
+"2","Singular precision matrix in level -1, block 1"
+"2","Singular precision matrix in level -1, block 1"
+"2","Singular precision matrix in level -1, block 1"

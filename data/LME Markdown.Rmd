@@ -1,0 +1,104 @@
+---
+title: "Using Linear Mixed Effects Models to Model Zebrafish LMR Data"
+author: "Zachary Rowson"
+date: "3/15/2022"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(nlme)
+library(data.table)
+library(ggplot2)
+```
+
+## Introduction
+
+LMEs allow us to model the deviation of individual Zebrafish tracks from the sample averaged parameters. How do we want to model these deviations?
+
+```{r, echo = FALSE}
+load("Padilla_DNT60_Loperamide.rda")
+
+rmv <- Padilla_DNT60_Loperamide[is.na(y), unique(fishID)]
+dataL <- Padilla_DNT60_Loperamide[t%in%11:30 & !(fishID%in%rmv)]
+nestLop.L <- groupedData(y ~ conc|fishID, data =  dataL[conc==0], order.groups = FALSE)
+
+# Set beginning of light to t=0. Set concentration as a factor
+nestLop.L$t <- nestLop.L$t - min(nestLop.L$t)
+nestLop.L$conc <- as.factor(nestLop.L$conc)
+```
+
+
+## Visualize Data
+
+Visualize data in Light to get an idea of which curve parameters vary for each fish. Look at a random sample of control fish.
+```{r, echo=FALSE}
+x <- sample(unique(dataL[conc==0,fishID]),12)
+ggplot(dataL[fishID%in%x,], aes(x=t,y=y)) +
+  geom_point() +
+  geom_line() +
+  geom_smooth(method = "lm", formula = y ~ poly(x,2), se=FALSE, color="red", lwd = .75) +
+  facet_wrap(vars(fishID)) # Intercept seems to be fairly constant
+```
+
+It appears that intercept parameter is fairly constant from one fish to another. What appears to vary most are the polynomial parameters for a poly2 fit. Maybe it's fair to say slope varies most.
+
+## Attempt to fit linear mixed effects models to each concentration group individually
+
+### Control parameters for regression fitting.
+```{r}
+ctrl <- lmeControl(opt = "optim", niterEM = 10000, msTol = 1e-10, msVerbose = TRUE,
+                   minAbsParApVar = 1e-10, maxIter = 1000, msMaxIter = 1000,
+                   control = list(abstol=1e-10,reltol=1e-10,ndeps=1e-10))
+```
+
+### Fit to control data
+```{r}
+nest0 <- groupedData(y ~ conc|fishID, data =  dataL[conc==0],
+                         order.groups = FALSE)
+nest0$t <- nest0$t - min(nest0$t)
+# Model lme
+lmm0 <- lme(y ~ poly(t,degree=2,raw=TRUE),
+            correlation = corAR1(, form = ~ t | fishID),
+            random = ~ 0 + poly(t,degree=1,raw=TRUE) |fishID,
+            method = "ML",
+            control = ctrl,
+            data = nest0)
+lmm0$apVar
+```
+
+Model converges.
+
+### Try with next concentration group, 0.004 uM.
+```{r}
+nest1 <- groupedData(y ~ conc|fishID, data =  dataL[conc==0.004],
+                         order.groups = FALSE)
+nest1$t <- nest1$t - min(nest1$t)
+# Model lme
+lmm1 <- lme(y ~ poly(t,degree=2,raw=TRUE),
+            correlation = corAR1(, form = ~ t | fishID),
+            random = ~ 0 + poly(t,degree=1,raw=TRUE) |fishID,
+            method = "ML",
+            control = ctrl,
+            data = nest1)
+lmm1$apVar
+```
+Fit doesn't work. It is likely that changing some convergence parameters would allow for a non-positive definite matrix, but do we really want to do this? Look at the current estimates for random effects variance of slope for 0.004uM.
+
+```{r, echo = FALSE}
+lmm1
+```
+
+Standard Deviation is so small, maybe modelling the slope as random for this concentration group is inaccurate. Plot fish trackings for 0.004uM group to investigate this.
+
+```{r, echo = FALSE}
+x <- sample(unique(dataL[conc==0,fishID]),12)
+ggplot(dataL[conc==0.004], aes(x=t,y=y)) +
+  geom_point() +
+  geom_line() +
+  geom_smooth(method = "lm", formula = y ~ poly(x,2), se=FALSE, color="red", lwd = .75) +
+  facet_wrap(vars(fishID)) # Intercept seems to be fairly constant
+```
+

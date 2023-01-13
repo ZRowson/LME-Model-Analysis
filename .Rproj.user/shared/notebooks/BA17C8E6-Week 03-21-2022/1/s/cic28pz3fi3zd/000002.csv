@@ -1,0 +1,7 @@
+"0","# Apply square root to movement data"
+"0","data.L.sqrt <- Padilla_DNT60_Loperamide[t%in%11:30]"
+"0","data.L.sqrt[, sqrty := sqrt(y)]"
+"0",""
+"0","# Shift time measurements and save concentration as a factor"
+"0","data.L.sqrt$t <- data.L.sqrt$t - min(data.L.sqrt$t)"
+"0","data.L.sqrt$conc <- as.factor(data.L.sqrt$conc)"

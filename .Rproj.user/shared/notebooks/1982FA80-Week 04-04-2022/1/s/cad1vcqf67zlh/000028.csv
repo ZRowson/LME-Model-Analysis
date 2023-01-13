@@ -1,0 +1,1 @@
+"0","plot(lmm3.4rt, resid(.,level=0) ~ as.numeric(conc), abline = 0, main=""Residuals by Time Level=0: lmm3.4rt"")"

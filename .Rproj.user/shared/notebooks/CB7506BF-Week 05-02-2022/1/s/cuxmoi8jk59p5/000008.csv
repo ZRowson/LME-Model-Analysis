@@ -1,0 +1,7 @@
+"0","plot(lmm1.D, resid(.,level=1) ~ t,"
+"0","     panel = function(x, y, ...) {"
+"0","              lattice::panel.grid()"
+"0","              panel.xyplot(x, y)"
+"0","              panel.loess(x, y, lty=2)"
+"0","              panel.abline(0, 0)"
+"0","     })"

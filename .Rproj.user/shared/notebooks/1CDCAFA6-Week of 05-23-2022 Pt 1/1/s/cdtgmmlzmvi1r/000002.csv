@@ -1,0 +1,5 @@
+"0","normAIC <- function(zz) {"
+"0","    zz$AIC <- zz$AIC - min(zz$AIC)"
+"0","    indx <- order(zz$AIC)"
+"0","    zz[indx,]"
+"0","}"

@@ -1,0 +1,4 @@
+"0","lmm.L.1 <- update(lmm.L, weights = varConstPower())"
+"0",""
+"0","zz <- AIC(lmm.L, lmm.L.1)"
+"0","normAIC(zz)"

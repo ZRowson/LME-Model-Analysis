@@ -1,0 +1,8 @@
+"0","ggplot(data.L.lam, aes(x=t,y=lamy,fill=as.factor(conc),color=as.factor(conc))) + "
+"0","  stat_summary(fun.data=avg_func, geom=""ribbon"", alpha=0.5) +"
+"0","  stat_summary(fun.data=avg_func, geom=""line"") +"
+"0","  scale_color_manual(values=colors, labels=legend.labels) +"
+"0","  scale_fill_manual(values=colors, labels=legend.labels) +"
+"0","  labs(title=""Tebuconazole Light Data: Optimal lambda Transform"","
+"0","       fill=""Concentration"", color=""Concentration"","
+"0","       x=""Time"", y=""(Speed (cm/2 min)) ^ (-3/4)"")"

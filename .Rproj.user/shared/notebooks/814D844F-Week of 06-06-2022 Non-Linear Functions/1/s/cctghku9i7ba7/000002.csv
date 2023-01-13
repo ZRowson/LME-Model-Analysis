@@ -1,0 +1,3 @@
+"0","logist <- deriv( ~(AsymL-AsymU) / (1 + exp(-(x-xmid)/scal)),"
+"0","                c(""AsymU"", ""AsymL"", ""xmid"", ""scal""),"
+"0","                function(x, AsymU, AsymL, xmid, scal) {})"

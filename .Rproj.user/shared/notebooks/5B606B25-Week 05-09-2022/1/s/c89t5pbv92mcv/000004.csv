@@ -1,0 +1,5 @@
+"0","ctrl <- lmeControl(opt = ""optim"", niterEM = 1000, msTol = 1e-20, msMaxIter = 1000000, apVar = FALSE)"
+"0","lmm.D.1 <- update(lmm.D, weights = varConstPower(), control=ctrl)"
+"2","Error in lme.formula(fixed = sqrty ~ conc * poly(t, degree = 2, raw = TRUE),  : 
+  maximum number of iterations (lmeControl(maxIter)) reached without convergence
+"

@@ -1,0 +1,401 @@
+---
+title: "Week 04-11-2022"
+author: "Zachary Rowson"
+date: "4/8/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, cache=TRUE)
+library(nlme)
+library(data.table)
+library(ggplot2)
+```
+
+## Introduction
+
+In this document I will investigate models for Dark Loperamide data. I will begin by evaluating the optimal BoxCox transformation parameters for the data. Then evaluate potential random effects, and correlation structures.
+
+## Conclusions
+
+Evaluation of correlation between random effects parameters has revealed that "centering" time dimension at mean value reduces correlation between random effects.
+
+In order to optimize ability of analysis to detect chemical effects, there may be value in modeling with a "sub-optimal" (by AIC). Removal of some random effects parameters increases error associated with subject level models, but improves accuracy around parameter estimates. Parameter estimates slightly change, making it hard to defend using a sub optimal model if potentially making imprecise estimates.
+
+## Evaluate Optimal Box-Cox Transformation
+
+Data upload and transformation will be hidden. Find data transformation producing most symmetric data according to Box-Cox.
+
+```{r,raw-upload}
+load("../data/Padilla_DNT60_Loperamide.rda")
+
+# Split Light
+data <- copy(Padilla_DNT60_Loperamide)
+data.D <- Padilla_DNT60_Loperamide[t%in%31:50]
+
+# Shift time measurements and save concentration as a factor
+data.D$t <- data.D$t - min(data.D$t)
+data.D$conc <- as.factor(data.D$conc)
+
+# Identify individuals to remove
+remove <- Padilla_DNT60_Loperamide[is.na(y), unique(fishID)]
+```
+
+```{r, boxcox-optimization, echo=TRUE}
+to_optimize <- as.data.frame(data.D)
+to_optimize$t <- as.factor(to_optimize$t)
+to_optimize$y <- to_optimize$y + 1
+bc_params <- MASS::boxcox(y ~ t, data = to_optimize,
+                         lambda = seq(-3, 3, by = 0.25),
+                         plotit = FALSE)
+i <- which(bc_params$y == max(bc_params$y))
+bc_params$x[i]
+```
+
+We find that square root transformation is optimal. Application of the transformation and creation of hierarchical data will not be shown.
+
+```{r, transf-data}
+# Transform data
+data.D.sqrt <- copy(data.D)
+data.D.sqrt[, sqrty := sqrt(y)]
+```
+```{r, hier-struct}
+# Create hierarchical structure
+Dark.sqrt <- groupedData(sqrty ~ t | fishID, data = as.data.frame(data.D.sqrt[!(fishID%in%remove)]), order.groups = FALSE)
+```
+
+# Visualize Data
+
+Visualize population averaged and subject specific data. Population averaged first.
+
+```{r, pa-graphic, warning=FALSE}
+avg_func <- function(...) {
+  avg <- mean(...,na.rm=TRUE)
+  SE <- stats::sd(..., na.rm=TRUE) / sqrt(length(...))
+  
+  data.frame(y=avg, ymin=avg-SE, ymax=avg+SE)
+}
+ggplot(data.D.sqrt, aes(x=t,y=sqrty,fill=conc,color=conc)) + 
+  stat_summary(fun.data=avg_func, geom="ribbon", alpha=0.5) +
+  stat_summary(fun.data=avg_func, geom="line") +
+  labs(title="Loperamide Dark Data: Square-Root Transformed",
+       fill="Concentration", color="Concentration",
+       x="Time", y="Square-Root(y)")
+```
+
+Data trend looks nearly linear. May be that quadratic fixed effect term will be useful in capturing deviations from this linearity in treatment groups (See conc = 40).
+
+Visualize individual fishes trends with time.
+
+```{r, ss-graphic}
+sample <- sample(unique(Dark.sqrt$fishID), 16)
+plot(Dark.sqrt[Dark.sqrt$fishID %in% sample,])
+```
+
+Individual trackings are fairly variable with jumps to and from zero movement. It seems that a quadratic term might be useful to model individual trackings.
+
+# Fit Individual Models
+
+To assess what linear random effects would be useful for modeling of the data, apply linear models to each fish individually. Assess the correlation of parameter estimates, error of the fits, and the significance of each fits terms.
+
+```{r, eval-terms}
+list.D <- lmList(sqrty ~ poly(t,degree=2,raw=TRUE), Dark.sqrt)
+
+pairs(list.D, id = 0.01)
+```
+
+Very clear correlation between slope and quadratic term. This may imply that quadratic term is not useful. Center time measurements and reevaluate correlation.
+
+```{r, cntr-data}
+
+data.D.1 <- Padilla_DNT60_Loperamide[t%in%31:50]
+
+# Shift time measurements and save concentration as a factor
+data.D.1$t <- data.D.1$t - mean(data.D.1$t)
+data.D.1$conc <- as.factor(data.D.1$conc)
+
+# Transform data
+data.D.sqrt.1 <- copy(data.D.1)
+data.D.sqrt.1[, sqrty := sqrt(y)]
+
+# Create hierarchical structure
+Dark.sqrt.1 <- groupedData(sqrty ~ t | fishID, data = as.data.frame(data.D.sqrt.1[!(fishID%in%remove)]), order.groups = FALSE)
+
+# Re-evaluate terms
+list.D.1 <- lmList(sqrty ~ poly(t,degree=2,raw=TRUE), Dark.sqrt.1)
+pairs(list.D.1, id = 0.01)
+```
+
+Correlation decreases between slope and quadratic terms. Increased correlation between intercept term, and slope and quadratic terms appear. Using centered time data, model would no longer describe the activity of the zebrafish directly after startle, but that could be described in another endpoint?
+
+Plot intervals to assess significance of polynomial terms.
+
+```{r, int}
+plot(intervals(list.D), ylab=NULL)
+```
+
+Intercept values are obviously significant. Slope are quadratic parameter values both seem to be shifted from 0, with slope seemingly more significant. Correlation of these parameter values is visually apparent with quadratic and slope terms displaying negative correlation.
+
+Plot for "centered" time data.
+
+```{r, int-cntr}
+plot(intervals(list.D.1), ylab=NULL)
+```
+Confidence intervals around estimates become much smaller, and significance of slope term becomes more apparent. Modeling using centered time data seems to improve parameter accuracy and may improve the ability of the model to detect changes in behavior resulting from chemical exposure.
+
+## Optimize Model to Data with Un-Centered and Centered Time and Compare Models
+
+Here I will fit data with un-centered and centered time to evaluate the effect that centering the data has on the correlation of random effects. I will then evaluate the confidence intervals associated with sample level parameter estimates to see if there is potential benefit in using centered data due to increased accuracy around parameter estimates.
+
+## Begin fitting models to un-centered data.
+
+```{r, aic-func, echo = FALSE}
+normAIC <- function(zz) {
+    zz$AIC <- zz$AIC - min(zz$AIC)
+    indx <- order(zz$AIC)
+    zz[indx,]
+}
+```
+```{r, gls-models-unc, echo=TRUE}
+base.unc <- gls(sqrty ~ poly(t,degree=2,raw=TRUE),
+            data = Dark.sqrt,
+            method = "ML")
+base1.unc <- update(base.unc, correlation=corAR1(,form=~t|fishID))
+base2.unc <- update(base.unc, correlation=corARMA(,form=~t|fishID,p=1,q=1))
+
+zz <- AIC(base.unc,base1.unc,base2.unc)
+normAIC(zz)
+```
+
+Indications that AR1 structure is best, which is good if we want to combine Light and Dark models given the model chosen for Light. Iteratively add random effects.
+
+```{r, models-unc, echo = TRUE}
+ctrl <- lmeControl(opt = "optim", niterEM = 200, msTol = 1e-20, msMaxIter = 1000, apVar = FALSE)
+
+lmm1.unc <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+            data = Dark.sqrt,
+            random = reStruct(~1|fishID,REML=FALSE,pdClass="pdSymm"),
+            correlation = corAR1(,form=~t|fishID),
+            method = "ML",
+            control = ctrl)
+lmm2.unc <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+            data = Dark.sqrt,
+            random = reStruct(~poly(t,degree=1,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+            correlation = corAR1(,form=~t|fishID),
+            method = "ML",
+            control = ctrl)
+lmm3.unc <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+            data = Dark.sqrt,
+            random = reStruct(~poly(t,degree=2,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+            correlation = corAR1(,form=~t|fishID),
+            method = "ML",
+            control = ctrl)
+
+zz <- AIC(lmm1.unc,lmm2.unc,lmm3.unc)
+normAIC(zz)
+```
+
+Random quadratic produces best fit. This will be the optimal model for un-centered data. Side Note: this matches up with Light model.
+
+## Begin fitting models to centered data
+
+```{r, gls-models, echo=TRUE}
+base <- gls(sqrty ~ poly(t,degree=2,raw=TRUE),
+            data = Dark.sqrt.1,
+            method = "ML")
+base1 <- update(base, correlation=corAR1(,form=~t|fishID))
+base2 <- update(base, correlation=corARMA(,form=~t|fishID,p=1,q=1))
+
+zz <- AIC(base,base1,base2)
+normAIC(zz)
+```
+
+Indications that AR1 structure is best, which is good if we want to combine Light and Dark models given the model chosen for Light. Iteratively add random effects.
+
+```{r, models, echo = TRUE}
+ctrl <- lmeControl(opt = "optim", niterEM = 200, msTol = 1e-20, msMaxIter = 1000, apVar = FALSE)
+
+lmm1 <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+            data = Dark.sqrt.1,
+            random = reStruct(~1|fishID,REML=FALSE,pdClass="pdSymm"),
+            correlation = corAR1(,form=~t|fishID),
+            method = "ML",
+            control = ctrl)
+lmm2 <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+            data = Dark.sqrt.1,
+            random = reStruct(~poly(t,degree=1,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+            correlation = corAR1(,form=~t|fishID),
+            method = "ML",
+            control = ctrl)
+lmm3 <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+            data = Dark.sqrt.1,
+            random = reStruct(~poly(t,degree=2,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+            correlation = corAR1(,form=~t|fishID),
+            method = "ML",
+            control = ctrl)
+
+zz <- AIC(lmm1,lmm2,lmm3)
+normAIC(zz)
+```
+
+Random quadratic produces best fit and will be used as the optimal models.
+
+## Compare correlation of random effects terms
+
+Look at random effects var-cov matrix for the un-centered data.
+```{r, random-effects-unc}
+lmm3.unc$modelStruct$reStruct
+```
+
+Notice the intensity of correlation between random effects terms.
+
+Now look at var-cov of random effects for the centered data
+```{r, random-effects}
+lmm3$modelStruct$reStruct
+```
+
+Note the decrease in correlation between higher order polynomial terms. To knock this home I will plot correlation scatter-plots of the random effects.
+
+```{r, corr-scatter-plots}
+plot(pairs(lmm3.unc), main = "Correlation of REs for un-centered data")
+plot(pairs(lmm3), main = "Correlation of REs for centered data")
+```
+
+There is obvious high-correlation that exists for un-centered data, but the improvement in correlation is apparent.
+
+## Evaluate the confidence intervals of parameter estimates.
+
+```{r, create-intervals-lmm3.unc-3}
+int.lmm3.unc <- intervals(lmm3.unc, which="fixed")
+int.lmm3 <- intervals(lmm3, which="fixed")
+
+int.list <- lapply(list(int.lmm3.unc$fixed,int.lmm3$fixed), function(int.df) {
+  dt <- as.data.table(int.df)
+  concs <- unique(Padilla_DNT60_Loperamide$conc)
+  dt[, conc := c(concs,0,concs,concs[-1])]
+  dt[, param := c(rep("B_0",10),"B_1","B_2",rep("B_1",9),rep("B_2",9))]
+})
+
+int.dt <- do.call('rbind', int.list)
+int.dt[, model := rep(c("lmm3.unc","lmm3"),each=30)]
+```
+```{r, plot-intervals-unc}
+ggplot(int.dt[conc!=0], aes(x=est.,y=log10(conc),color=model)) +
+  geom_point() +
+  geom_errorbar(aes(xmin=lower, xmax=upper)) +
+  facet_wrap(vars(param), scales="free_x") +
+  geom_vline(xintercept=0)
+```
+
+## Assess the fit.
+
+Evaluate normality of residuals, residuals by time and residuals by concentration.
+
+```{r}
+par(mfrow=c(1,2))
+qqnorm(resid(lmm3,level=0), main = "Normal Q-Q Plot Level=0: lmm3")
+qqline(resid(lmm3, level=0))
+qqnorm(resid(lmm3,level=1), main = "Normal Q-Q Plot Level=1: lmm3")
+qqline(resid(lmm3, level=1))
+```
+
+Residual values look great at sample level (level=0) interestingly enough.
+
+## Compare Fitted models
+
+Visually evaluate the fitted models for lmm2 and lmm3.
+
+```{r, lmm2-v-lmm3-SS}
+comparePred23 <- comparePred(lmm2,lmm3)
+sample <- sample(comparePred23$.groups, 20)
+
+plot(comparePred23[comparePred23$.groups%in%sample,])
+```
+
+Fits are very similar for lmm2 and lmm3.
+
+Compare the population-averaged models.
+
+```{r}
+t <- unique(Dark.sqrt.1$t)
+fixedEf2 <- fixef(lmm2)
+fixedEf3 <- fixef(lmm3)
+fittedData <-lapply(2:10, function(i) {
+  # lmm2 function
+  c2 <- fixedEf2[i] + fixedEf2[1]
+  b2 <- fixedEf2[11+i] + fixedEf2[11]
+  a2 <- fixedEf2[20+i] + fixedEf2[12]
+  f2 <- function(x) c2 + (b2*x) + (a2*(x^2))
+  
+  # lmm3 function
+  c3 <- fixedEf3[i] + fixedEf3[1]
+  b3 <- fixedEf3[11+i] + fixedEf3[11]
+  a3 <- fixedEf3[20+i] + fixedEf3[12]
+  f3 <- function(x) c3 + (b3*x) + (a3*(x^2))
+  
+  data.frame("t" = t,
+             "pred2" = f2(t),
+             "pred3" = f3(t))
+})
+```
+
+```{r, ctrl-fit}
+  # lmm2 function
+  c2 <- fixedEf2[1]
+  b2 <- fixedEf2[11]
+  a2 <- fixedEf2[12]
+  f2 <- function(x) c2 + (b2*x) + (a2*(x^2))
+  
+  # lmm3 function
+  c3 <- fixedEf3[1]
+  b3 <- fixedEf3[11]
+  a3 <- fixedEf3[12] 
+  f3 <- function(x) c3 + (b3*x) + (a3*(x^2))
+
+ctrlFit <- data.frame("t" = t,
+             "pred2" = f2(t),
+             "pred3" = f3(t))
+```
+
+```{r}
+conc <- rep(unique(data.D.sqrt.1$conc),each=20)
+fittedData1 <- rbind(ctrlFit, do.call('rbind', fittedData))
+fittedDF <- cbind(conc, fittedData1)
+fittedDF.long <- reshape(fittedDF, varying = c("pred2","pred3"), v.names = "y", timevar =      "model",  direction = "long")
+```
+
+```{r, warning=FALSE}
+ggplot(data.D.sqrt.1, aes(x=t,y=sqrty)) + 
+  stat_summary(fun = mean) +
+  geom_line(fittedDF.long, mapping = aes(x=t,y=y,color=as.factor(model))) + 
+  facet_wrap(vars(conc)) +
+  labs(title="Loperamide Dark Data: Square-Root Transformed",
+       color="Model",
+       x="Time", y="Square-Root(y)")
+```
+
+Such a small difference between fits that the difference in unobservable at this scale. Does elimination of the quadratic Random Effect parameter improve accuracy of other parameter estimates? Plot sample level parameter estimates for lmm2 and lmm3.
+
+```{r, create-intervals-lmm2-3}
+int.lmm2 <- intervals(lmm2, which="fixed")
+int.lmm3 <- intervals(lmm3, which="fixed")
+
+int.list <- lapply(list(int.lmm2$fixed,int.lmm3$fixed), function(int.df) {
+  dt <- as.data.table(int.df)
+  concs <- unique(Padilla_DNT60_Loperamide$conc)
+  dt[, conc := c(concs,0,concs,concs[-1])]
+  dt[, param := c(rep("B_0",10),"B_1","B_2",rep("B_1",9),rep("B_2",9))]
+})
+
+int.dt <- do.call('rbind', int.list)
+int.dt[, model := rep(c("lmm2","lmm3"),each=30)]
+```
+```{r, plot-intervals}
+ggplot(int.dt[conc!=0], aes(x=est.,y=log10(conc),color=model)) +
+  geom_point() +
+  geom_errorbar(aes(xmin=lower, xmax=upper)) +
+  facet_wrap(vars(param), scales="free_x") +
+  geom_vline(xintercept=0)
+```
+
+Confidence intervals are slightly smaller when lmm2 is used. Chemical effect on parameters at high concentration are more significant with lmm3. There could potentially be value in reducing parameters. However, parameter estimates change at some concentrations. This makes it hard to defend using lmm2 for the benefit it provides for accuracy.

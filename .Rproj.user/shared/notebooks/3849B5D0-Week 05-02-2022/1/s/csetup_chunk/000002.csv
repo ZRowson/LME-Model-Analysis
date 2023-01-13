@@ -1,0 +1,6 @@
+"0","knitr::opts_chunk$set(echo=FALSE, cache=TRUE)"
+"0","library(nlme)"
+"0","library(lattice)"
+"0","library(data.table)"
+"0","library(ggplot2)"
+"0","library(gabi)"

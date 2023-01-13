@@ -1,0 +1,6 @@
+"0","# Create nested data"
+"0","nests <- lapply(chms.toFit, createNest)"
+"0",""
+"0","# Fit to nested data"
+"0","ctrl <- lmeControl(opt = ""optim"", niterEM = 200, msTol = 1e-20, msMaxIter = 1000, apVar = FALSE)"
+"0","fits <- lapply(nests, function(chm) lapply(chm, fitLME, ctrl=ctrl))"

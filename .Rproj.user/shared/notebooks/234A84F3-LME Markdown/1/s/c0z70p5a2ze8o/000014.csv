@@ -1,0 +1,6 @@
+"0","x <- sample(unique(dataL[conc==0,fishID]),12)"
+"0","ggplot(dataL[fishID%in%x,], aes(x=t,y=y)) +"
+"0","  geom_point() +"
+"0","  geom_line() +"
+"0","  geom_smooth(method = ""lm"", formula = y ~ poly(x,2), se=FALSE, color=""red"", lwd = .75) +"
+"0","  facet_wrap(vars(fishID)) # Intercept seems to be fairly constant"

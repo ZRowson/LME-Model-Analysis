@@ -1,0 +1,6 @@
+"0","ggplot(int.dt[model==""lmm1""&conc!=0], aes(y=est.,x=log10(conc))) +"
+"0","  geom_point() +"
+"0","  geom_errorbar(aes(ymin=lower, ymax=upper)) +"
+"0","  facet_wrap(vars(param), scales=""free_y"") +"
+"0","  geom_hline(yintercept=0) +"
+"0","  labs(title = ""Model Params for Tebuconazole in Dark"")"

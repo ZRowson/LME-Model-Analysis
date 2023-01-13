@@ -1,0 +1,37 @@
+"0","nlmm.Light <- nlme(sqrty ~ SSfpl(t, phi1, phi2, phi3, phi4),
+                   random = pdDiag(phi1 + phi2 + phi3 + phi4 ~ 1),
+                   data = Light.sqrt,
+                   control = ctrl)
+"
+"2","Warning:"
+"2"," 164 errors caught in nls(y ~ cbind(1, 1/(1 + exp((xmid - x)/exp(lscal)))), data = xy, start = list(xmid = ir[1L], lscal = log(abs(ir[2L]))), algorithm = ""plinear"").  The error messages and their frequencies are
+
+                     number of iterations exceeded maximum of 50 
+                                                               3 
+                     NA/NaN/Inf in foreign function call (arg 1) 
+                                                               7 
+                                    singular matrix 'a' in solve 
+                                                              14 
+step factor 0.000488281 reduced below 'minFactor' of 0.000976562 
+                                                              47 
+                                               singular gradient 
+                                                              93 
+"
+"2","Warning in (function (model, data = sys.frame(sys.parent()), fixed, random,  :"
+"2","
+ "
+"2"," Iteration 1, LME step: nlm() did not converge (code = 4). Do increase 'msMaxIter'!
+"
+"2","Warning in (function (model, data = sys.frame(sys.parent()), fixed, random,  :"
+"2","
+ "
+"2"," Singular precision matrix in level -1, block 1
+"
+"2","Warning in (function (model, data = sys.frame(sys.parent()), fixed, random,  :"
+"2","
+ "
+"2"," Iteration 2, LME step: nlm() did not converge (code = 4). Do increase 'msMaxIter'!
+"
+"2","Error in logLik.lmeStructInt(nlmeSt, nlmePars) : 
+  NA/NaN/Inf in foreign function call (arg 1)
+"

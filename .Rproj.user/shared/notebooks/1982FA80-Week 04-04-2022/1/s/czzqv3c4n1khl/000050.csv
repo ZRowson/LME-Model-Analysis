@@ -1,0 +1,2 @@
+"0","layout(mat = layout.mat)"
+"0","plot(lmm3.sqrt, resid(.,level=0) ~ as.numeric(t), abline = c(-2,0,2), main=""Residuals by Time Level=0: lmm3.sqrt"")"

@@ -1,0 +1,2 @@
+"0","sample.L <- groupedData(sqrty ~ t | fishID, data = as.data.frame(data_sample.L.sqrt), "
+"0","                        order.groups = FALSE)"

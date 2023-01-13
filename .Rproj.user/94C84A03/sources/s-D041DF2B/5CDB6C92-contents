@@ -1,0 +1,295 @@
+---
+title: "Week of 05-30-2022: Assess Quality of Fit"
+author: "Zachary Rowson"
+date: "5/26/2022"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache=TRUE)
+library(nlme)
+library(lattice)
+library(data.table)
+library(ggplot2)
+library(gabi)
+```
+
+## Introduction
+
+In this document I will evaluate plots of true data to fitted values for 10 chemicals that were modeled last week. This will be done to assess the quality of model fits to individual zebrafish tracks. 
+
+## Fit to 10 Data Sets
+
+### First Evaluation of the Fitted vs. True Values
+
+These are the 10 chemicals whose exposure data we will model.
+
+```{r, choose-chms}
+load("../data/Padilla_DNT60_pmr0_long.rda")
+DNT60_data <- gabi::data_egids(DNT60pmr0_long)
+
+chemicals <- DNT60pmr0_long[, unique(cpid)]
+set.seed(2)
+chms.toFit <- sample(chemicals, 10)
+chms.toFit
+names(chms.toFit) <- chms.toFit
+```
+
+Fit LMEs to these data.
+
+```{r, createNest-function}
+createNest <- function(chm) {
+  
+            # Isolate chemical exposure data
+            group <- DNT60_data[cpid==chm, unique(egid)]
+            exposure.data <- DNT60_data[cpid==chm | (wllt=="v"&egid==group)]
+            
+            # Remove poor quality individuals
+            remove <- exposure.data[is.na(y), unique(fishID)]
+
+            # Split data by experimental phase
+            data <- copy(exposure.data)
+            data.L <- data[t%in%11:30]
+            data.D <- data[t%in%31:50]
+
+            # Shift time measurements and save concentration as a factor
+            data.L$t <- data.L$t - mean(data.L$t)
+            data.L$conc <- as.factor(data.L$conc)
+            data.D$t <- data.D$t - mean(data.D$t)
+            data.D$conc <- as.factor(data.D$conc)
+
+            # Add well location, inside vs. outside, as co-variate
+            data.L[rowi%in%c(1,8), well_loc:="outside"][coli%in%c(1,12), well_loc:="outside"]
+            data.L[is.na(well_loc), well_loc:="inside"]
+            data.D[rowi%in%c(1,8), well_loc:="outside"][coli%in%c(1,12), well_loc:="outside"]
+            data.D[is.na(well_loc), well_loc:="inside"]
+
+            # Transform data
+            data.L.sqrt <- copy(data.L)
+            data.L.sqrt[, sqrty := sqrt(y)]
+            data.D.sqrt <- copy(data.D)
+            data.D.sqrt[, sqrty := sqrt(y)]
+
+            # Define hierarchical structure
+            Light.sqrt <- groupedData(sqrty ~ t | fishID, data = as.data.frame(data.L.sqrt[!(fishID%in%remove)]), order.groups = FALSE)
+            Dark.sqrt <- groupedData(sqrty ~ t | fishID, data = as.data.frame(data.D.sqrt[!(fishID%in%remove)]), order.groups = FALSE)
+            
+            return(list(Light.sqrt = Light.sqrt,
+                        Dark.sqrt = Dark.sqrt))
+}
+```
+```{r, fitLME-function}
+fitLME <- function(data, ctrl) {
+  
+            lmm <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+                         data = data,
+                         random = reStruct(~poly(t,degree=2,raw=TRUE)|fishID,REML=TRUE,pdClass="pdSymm"),
+                         correlation = corAR1(,form=~t|fishID),
+                         method = "REML",
+                         control = ctrl)
+            
+            return(lmm)
+}
+```
+```{r, apply-functions, warning=FALSE}
+# Create nested data
+nests <- lapply(chms.toFit, createNest)
+
+# Fit to nested data
+ctrl <- lmeControl(opt = "optim", niterEM = 200, msTol = 1e-20, msMaxIter = 1000, apVar = FALSE)
+fits <- lapply(nests, function(chm) lapply(chm, fitLME, ctrl=ctrl))
+```
+
+Plot the fitted values vs. the true data points to assess the quality of fits for individual zebrafish tracks.
+
+```{r, eval-fit-v-true}
+lapply(fits, function(chm) lapply(chm, function(fit) {
+                                              if (identical(chm[[1]],fit)) {
+                                                phase <- "Light"
+                                              } else {
+                                                phase <- "Dark"
+                                              }
+                                              
+                                              name <- unique( fit$data$cpid[fit$data$wllt=="t"] )
+                                              plot(fitted(fit) ~ fit$data$sqrty,
+                                                   main = paste(name,"in",phase,sep=" "), 
+                                                   xlab = "True Data", ylab = "Fitted Data",
+                                                   col="blue")
+                                              abline(c(0,1))
+  }))
+```
+
+There are some disturbing observations here. It appears that for the *Light* level models that fits to the individual zebrafish tracks are not fitting the underlying data well. Values that are high are being fitted with low values and values that are low are being fit with high values. This may indicate that the quadratic model that we have chosen to model individual zebrafish tracks is not flexible enough to capture the violent fluctuations in activity. 
+
+One thought on this above statement. If values that are high are being fit low and low values high, does this indicate some amount of "averaging" that is occurring as we fit these models. The zebrafish trends tend to fluctuate violently, which I will show below. By fitting these very smooth quadratic functions, are we simply placing functions in between these low and high values resulting in the observed rotation of the plotted points away form the line of unity? If this ill-fitting quality of the model is occurring approximately equally amount of times between low and high values, then plotting of the residuals vs. some Q-Q Normal line would display this symmetry, which is what we observed last week.
+
+For the *Dark* phase models the same behavior appears to be happening, but much more slightly. For high values the data appears to be slightly fit with values that are too low. For data that are low the values are fit too high. For the Dark phase models, when we assessed the normality of the residuals with QQ plots, we saw a high degree of skew on the negative side of the residuals. Using the above argument that attempted to explain the symmetry in the Light phase models residuals, maybe we are simply seeing a higher occurrence of low values being ill fit Dark phase which is reflected in the skew of the residuals.
+
+Would a different transformation applied to the Dark phase help address this skew? Attempt to answer this question by applying box -cox optimization to each data set.
+
+### Apply New Transformation and Evaluate Fits
+
+Apply Box-Cox procedure to within group data in an attempt to normalize within group data points. I will table the chosen parameters for each chemical and choose the transformation that occurs most commonly. 
+
+```{r, boxCox-func}
+apply_boxCox <- function(data) {
+                  to_optimize <- as.data.frame(data)
+                  to_optimize$fishID <- as.factor(to_optimize$fishID)
+                  to_optimize$y <- to_optimize$y + 1
+                  bc_params <- MASS::boxcox(y ~ fishID, data = to_optimize,
+                                           lambda = seq(-3, 3, by = 0.25),
+                                           plotit = FALSE)
+                  i <- which(bc_params$y == max(bc_params$y))
+                  lambda.hat <- bc_params$x[i]
+                  return(lambda.hat)
+}
+```
+```{r, apply-boxCox-func}
+lambdas <- lapply(nests, lapply, apply_boxCox)
+lambdas.df <- do.call(`rbind`, lapply(lambdas, function(chm) do.call('cbind',chm)) )
+table(lambdas.df[,'Light.sqrt'])
+table(lambdas.df[,'Dark.sqrt'])
+```
+
+Retry the above procedure and evaluation after applying a different transformation to the Light and Dark data.
+
+```{r, createNest-function-1}
+createNest1 <- function(chm) {
+  
+            # Isolate chemical exposure data
+            group <- DNT60_data[cpid==chm, unique(egid)]
+            exposure.data <- DNT60_data[cpid==chm | (wllt=="v"&egid==group)]
+            
+            # Remove poor quality individuals
+            remove <- exposure.data[is.na(y), unique(fishID)]
+
+            # Split data by experimental phase
+            data <- copy(exposure.data)
+            data.L <- data[t%in%11:30]
+            data.D <- data[t%in%31:50]
+
+            # Shift time measurements and save concentration as a factor
+            data.L$t <- data.L$t - mean(data.L$t)
+            data.L$conc <- as.factor(data.L$conc)
+            data.D$t <- data.D$t - mean(data.D$t)
+            data.D$conc <- as.factor(data.D$conc)
+
+            # Add well location, inside vs. outside, as co-variate
+            data.L[rowi%in%c(1,8), well_loc:="outside"][coli%in%c(1,12), well_loc:="outside"]
+            data.L[is.na(well_loc), well_loc:="inside"]
+            data.D[rowi%in%c(1,8), well_loc:="outside"][coli%in%c(1,12), well_loc:="outside"]
+            data.D[is.na(well_loc), well_loc:="inside"]
+
+            # Transform data
+            data.L.log <- copy(data.L)
+            data.L.log[, logy := log10(y+1)]
+            data.D.qtrt <- copy(data.D)
+            data.D.qtrt[, qtrty := ((y)^(1/4))]
+
+            # Define hierarchical structure
+            Light.log <- groupedData(logy ~ t | fishID, data = as.data.frame(data.L.log[!(fishID%in%remove)]), order.groups = FALSE)
+            Dark.qtrt <- groupedData(qtrty ~ t | fishID, data = as.data.frame(data.D.qtrt[!(fishID%in%remove)]), order.groups = FALSE)
+            
+            return(list(Light.log = Light.log,
+                        Dark.qtrt = Dark.qtrt))
+}
+```
+```{r, fitLME-functions-1}
+fitLME.log <- function(data, ctrl) {
+  
+            lmm <- lme(logy ~ conc*poly(t,degree=2,raw=TRUE),
+                         data = data,
+                         random = reStruct(~poly(t,degree=2,raw=TRUE)|fishID,REML=TRUE,pdClass="pdSymm"),
+                         correlation = corAR1(,form=~t|fishID),
+                         method = "REML",
+                         control = ctrl)
+            
+            return(lmm)
+}
+
+fitLME.qtrt <- function(data, ctrl) {
+  
+            lmm <- lme(qtrty ~ conc*poly(t,degree=2,raw=TRUE),
+                         data = data,
+                         random = reStruct(~poly(t,degree=2,raw=TRUE)|fishID,REML=TRUE,pdClass="pdSymm"),
+                         correlation = corAR1(,form=~t|fishID),
+                         method = "REML",
+                         control = ctrl)
+            
+            return(lmm)
+}
+```
+```{r, apply-functions-1, warning=FALSE}
+# Create nested data
+nests1 <- lapply(chms.toFit, createNest1)
+
+# Fit to nested data
+ctrl <- lmeControl(opt = "optim", niterEM = 200, msTol = 1e-20, msMaxIter = 1000, apVar = FALSE)
+fits1 <- lapply(nests1, function(chm) lapply(chm, function(phase) {
+                                                    if (identical(chm[[1]], phase)) {
+                                                      lmm <- fitLME.log(phase, ctrl)
+                                                    } else {
+                                                      lmm <- fitLME.qtrt(phase, ctrl)
+                                                    }
+                        })
+          )
+```
+```{r, eval-fit-v-true-1}
+lapply(fits1, function(chm) lapply(chm, function(fit) {
+                                              if (identical(chm[[1]],fit)) {
+                                                phase <- "Light"
+                                                name <- unique( fit$data$cpid[fit$data$wllt=="t"] )
+                                                plot(fitted(fit) ~ fit$data$logy,
+                                                     main = paste(name,"in",phase,sep=" "), 
+                                                     xlab = "True Data", ylab = "Fitted Data",
+                                                     col="blue")
+                                                abline(c(0,1))
+                                              } else {
+                                                phase <- "Dark"
+                                                name <- unique( fit$data$cpid[fit$data$wllt=="t"] )
+                                                plot(fitted(fit) ~ fit$data$qtrty,
+                                                     main = paste(name,"in",phase,sep=" "), 
+                                                     xlab = "True Data", ylab = "Fitted Data",
+                                                     col="blue")
+                                                abline(c(0,1))
+                                              }
+  }))
+```
+
+From the fitted vs. true values it is difficult to assess how much of an effect this operation had on model residuals in Dark. For the Light phase data the behavior observed before is still apparent and in general we can see that the zero values are being fit with values that are way too high.
+
+Evaluate the new Q-Q plots.
+
+```{r, plot-qq-L, message=FALSE}
+invisible(lapply(1:10, function(i) {
+                      fit.1 <- fits[[i]][[1]]
+                      fit.2 <- fits1[[i]][[1]]
+                      name <- unique( fit.1$data$cpid[fit.1$data$wllt=="t"] )
+                      par(mfrow=c(1,2))
+                      qqnorm(resid(fit.1), main = paste(name,"in Light",sep=" "))
+                      qqline(resid(fit.1))
+                      qqnorm(resid(fit.2), main = paste(name,"in Light log10 Applied",sep=" "))
+                      qqline(resid(fit.2))
+  }))
+```
+```{r, plot-qq-D, message=FALSE}
+invisible(lapply(1:10, function(i) {
+                      fit.1 <- fits[[i]][[2]]
+                      fit.2 <- fits1[[i]][[2]]
+                      name <- unique( fit.1$data$cpid[fit.1$data$wllt=="t"] )
+                      par(mfrow=c(1,2))
+                      qqnorm(resid(fit.1), main = paste(name,"in Light",sep=" "))
+                      qqline(resid(fit.1))
+                      qqnorm(resid(fit.2), main = paste(name,"in Light qtrt Applied",sep=" "))
+                      qqline(resid(fit.2))
+  }))
+```
+
+For Light phase data the residuals don't appear to change that much. For the Dark phase data the transformation simply appears to make the skew worse. The effect of zero values is the issue here. It is not immediately obvious to me that changing the function fit to the data, that doesn't ridiculously over-fit the data, will help with this issue.
+
+## Take-Away
+
+It appears that the polynomial function isn't flexible enough to capture both high and low movement values taken on by the zebrafish. Modelling wiht a non parametric function might be more appropriate. I'm thinking sigmoid function in Light and either exponential function in Dark or sigmoid function of -x (flip function about y axis).

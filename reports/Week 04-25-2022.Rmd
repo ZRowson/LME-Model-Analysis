@@ -1,0 +1,690 @@
+---
+title: "Week 04-25-2022"
+author: "Zachary Rowson"
+date: "4/25/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, cache=TRUE)
+library(nlme)
+library(lattice)
+library(data.table)
+library(ggplot2)
+library(gabi)
+```
+
+## Introduction
+
+This week I will move onto modeling other chemical exposure data from the DNT60 study. Five chemicals will be randomly selected from the DNT60 set and these exposure data will be modeled separately. I plan on doing one chemical per week, but if I can go at a faster rate I will. Modeling of each of these exposure data will be better inform the ideal structure of our final model. What data transformation will we use? What fixed effects will we use? What random effects? What correlation structure? We will use centered time data? Etc.
+
+## Randomly Select Five Chemicals
+
+Padilla DNT60 data is loaded (not shown) and five chemicals are randomly selected from the set of 61.
+
+```{r,raw-upload}
+load("../data/Padilla_DNT60_pmr0_long.rda")
+```
+```{r, random-selec-chms, echo=TRUE}
+# Isolate test chemical names from DNT60 set
+set.seed(1)
+chemicals <- unique( DNT60pmr0_long[DNT60pmr0_long$wllt=="t"]$cpid )
+chemicals.to.model <- sample(chemicals, 5, replace=FALSE)
+chemicals.to.model
+```
+
+Hopefully when I knit this document the randomly selected chemicals will remain the same. Otherwise, here are the chemicals that were randomly selected: Tebuconazole, 6-propyl-2-thiouracil, Hexaclorophene, 5,5-Diphenylhdandoin, and Fluoxetine.
+
+## Tebuconazole
+
+Isolate and divide Tebuconazole data into Light and Dark. This will not be shown.
+
+```{r, iso-split-data, message=FALSE, warning=FALSE}
+chm <- "Tebuconazole"
+
+# Isolate Tebuconazole data
+DNT60_data <- gabi::data_egids(DNT60pmr0_long)
+group <- DNT60_data[cpid==chm, unique(egid)]
+Padilla_DNT60_Tebuconazole <- DNT60_data[cpid==chm | (wllt=="v"&egid==group)]
+
+# Split data by experimental phase
+data <- copy(Padilla_DNT60_Tebuconazole)
+data.L <- Padilla_DNT60_Tebuconazole[t%in%11:30]
+data.D <- Padilla_DNT60_Tebuconazole[t%in%31:50]
+
+# Identify individuals to remove
+remove <- Padilla_DNT60_Tebuconazole[is.na(y), unique(fishID)]
+```
+
+Plot raw Light and Dark data for Tebuconazole.
+
+```{r, plot-raw, warning=FALSE}
+## Colors for plotting
+n <- length( data.L[,unique(conc)] )
+colors <- viridis::viridis(n)
+
+# Sample sizes
+legend.labels <- data.L[wllq==1, unique(fishID), by=conc][, .N, by=conc][, paste0(conc, ", n=", N)]
+
+# Function to create lines and ribbon
+avg_func <- function(...) {
+  avg <- mean(...,na.rm=TRUE)
+  SE <- stats::sd(..., na.rm=TRUE) / sqrt(length(...))
+  
+  data.frame(y=avg, ymin=avg-SE, ymax=avg+SE)
+}
+
+ggplot(data.L, aes(x=t,y=y,fill=as.factor(conc),color=as.factor(conc))) + 
+  stat_summary(fun.data=avg_func, geom="ribbon", alpha=0.5) +
+  stat_summary(fun.data=avg_func, geom="line") +
+  scale_color_manual(values=colors, labels=legend.labels) +
+  scale_fill_manual(values=colors, labels=legend.labels) +
+  labs(title="Tebuconazole Light Data: Raw",
+       fill="Concentration", color="Concentration",
+       x="Time", y="Speed (cm/2 min)")
+ggplot(data.D, aes(x=t,y=y,fill=as.factor(conc),color=as.factor(conc))) + 
+  stat_summary(fun.data=avg_func, geom="ribbon", alpha=0.5) +
+  stat_summary(fun.data=avg_func, geom="line") +
+  scale_color_manual(values = colors) +
+  scale_fill_manual(values = colors) +
+  labs(title="Tebuconazole Dark Data: Raw",
+       fill="Concentration", color="Concentration",
+       x="Time", y="Speed (cm/2 min)")
+```
+
+In prior analysis Tebuconazole was found to affect zebrafish startle response, which is visually apparent in the Dark.
+
+## Identify Optimal Box-Cox Transformation Parameters
+
+Identify optimal data transformations for both Light and Dark data. It was found that the square-root transformation was optimal for Loperamide data.
+
+```{r, boxcox-optimization, echo=TRUE}
+# Light Data
+to_optimize.L <- as.data.frame(data.L)
+to_optimize.L$t <- as.factor(to_optimize.L$t)
+to_optimize.L$y <- to_optimize.L$y + 1
+bc_params.L <- MASS::boxcox(y ~ t, data = to_optimize.L,
+                         lambda = seq(-3, 3, by = 0.25),
+                         plotit = FALSE)
+i <- which( bc_params.L$y == max(bc_params.L$y) )
+lam.L <- bc_params.L$x[i]
+lam.L
+
+# Dark Data
+to_optimize.D <- as.data.frame(data.D)
+to_optimize.D$t <- as.factor(to_optimize.D$t)
+to_optimize.D$y <- to_optimize.D$y + 1
+bc_params.D <- MASS::boxcox(y ~ t, data = to_optimize.D,
+                         lambda = seq(-3, 3, by = 0.25),
+                         plotit = FALSE)
+i <- which(bc_params.D$y == max(bc_params.D$y))
+lam.D <- bc_params.D$x[i]
+lam.D
+```
+
+Dark data is once again optimally transformed using square-root power. Light Data is much different. Visualize the log-likelihood function for Light data.
+
+```{r, bc-log-likeli}
+MASS::boxcox(y ~ t, data = to_optimize.L,
+                         lambda = seq(-3, 3, by = 0.25),
+                         plotit = TRUE)
+```
+
+I will use the optimal transformation by Box-Cox, visualize the residuals of the model, and compare to square root transformed data.
+
+## Model Light Data
+
+Tebuconazole Light data will be transformed and a hierarchical structure declared.
+
+```{r, transf-Light, echo=TRUE}
+# Transform data
+# Optimal lambda
+data.L.lam <- copy(data.L)
+data.L.lam[, lamy := (y+1)^(lam.L)]
+
+# Square-root
+data.L.sqrt <- copy(data.L)
+data.L.sqrt[, sqrty := sqrt(y)]
+```
+```{r, hier-struct-L, echo=TRUE}
+Light.lam <- groupedData(lamy ~ t | fishID, data = as.data.frame(data.L.lam[!(fishID%in%remove)]), order.groups = FALSE)
+Light.sqrt <- groupedData(sqrty ~ t | fishID, data = as.data.frame(data.L.sqrt[!(fishID%in%remove)]), order.groups = FALSE)
+```
+
+Visualize transformed Light data.
+
+```{r, plot-transf-L, warning=FALSE}
+ggplot(data.L.lam, aes(x=t,y=lamy,fill=as.factor(conc),color=as.factor(conc))) + 
+  stat_summary(fun.data=avg_func, geom="ribbon", alpha=0.5) +
+  stat_summary(fun.data=avg_func, geom="line") +
+  scale_color_manual(values=colors, labels=legend.labels) +
+  scale_fill_manual(values=colors, labels=legend.labels) +
+  labs(title="Tebuconazole Light Data: Optimal lambda Transform",
+       fill="Concentration", color="Concentration",
+       x="Time", y="(Speed (cm/2 min)) ^ (-3/4)")
+ggplot(data.L.sqrt, aes(x=t,y=sqrty,fill=as.factor(conc),color=as.factor(conc))) + 
+  stat_summary(fun.data=avg_func, geom="ribbon", alpha=0.5) +
+  stat_summary(fun.data=avg_func, geom="line") +
+  scale_color_manual(values=colors, labels=legend.labels) +
+  scale_fill_manual(values=colors, labels=legend.labels) +
+  labs(title="Tebuconazole Light Data: Square Root Transformed",
+       fill="Concentration", color="Concentration",
+       x="Time", y="(Speed (cm/2 min)) ^ (1/2)")
+```
+
+Relationship of movement data with time completely changes using the optimal data transformation. Both datasets have curvature at the beginning of the Light that was ill modeled for the Loperamide exposure data. Optimally transformed data has the same sort of trend as the Dark which was well modeled using quadratic polynomials.
+
+Visualize individual fish trends with time for optimal transform.
+
+```{r, ss-graphic-lam}
+sample <- sample(unique(Light.lam$fishID), 16)
+plot(Light.lam[Light.lam$fishID %in% sample,])
+```
+
+Data is highly variable. It almost seems that use of a quadratic term for individual models will be unnecessary. This is what was found for the Loperamide data.
+
+Square root transform.
+
+```{r}
+plot(Light.sqrt[Light.sqrt$fishID %in% sample,])
+```
+
+Again behavior is highly variable. Some fish display cubic behavior, some quadratic, etc. There doesn't seem to be an obvious optimal model.
+
+Begin assessing what random effects will be necessary. Fit quadratic regressions to each fish individually. Assess the correlation of parameters and evaluate the effect of centering the time data. Then evaluate the significance of the regression parameters across the sample.
+
+Lambda transformed correlation.
+
+```{r, eval-terms-L-lam}
+list.L.lam <- lmList(lamy ~ poly(t,degree=2,raw=TRUE), Light.lam)
+pairs(list.L.lam, id = 0.01)
+```
+
+Square-root transformed correlation.
+
+```{r, eval-terms-L-sqrt}
+list.L.sqrt <- lmList(sqrty ~ poly(t,degree=2,raw=TRUE), Light.sqrt)
+pairs(list.L.sqrt, id = 0.01)
+```
+
+Degree of correlation seems about the same. Plots appear strange for square-root data due to the presence of one extreme outlier, DNT-82.6.11. Now evaluate the effect of centering time data. Optimal lambda data first.
+
+```{r, cntr-data-L-lam}
+data.L.1 <- Padilla_DNT60_Tebuconazole[t%in%11:30]
+
+# Shift time measurements and save concentration as a factor
+data.L.1$t <- data.L.1$t - mean(data.L.1$t)
+data.L.1$conc <- as.factor(data.L.1$conc)
+
+# Transform data
+data.L.lam.1 <- copy(data.L.1)
+data.L.lam.1[, lamy := (y+1)^(lam.L)]
+
+# Create hierarchical structure
+Light.lam.1 <- groupedData(lamy ~ t | fishID, data = as.data.frame(data.L.lam.1[!(fishID%in%remove)]), order.groups = FALSE)
+
+# Re-evaluate terms
+list.L.lam.1 <- lmList(lamy ~ poly(t,degree=2,raw=TRUE), Light.lam.1)
+pairs(list.L.lam.1, id = 0.01)
+```
+
+Square-root data.
+
+```{r, cntr-data-L-sqrt}
+# Transform data
+data.L.sqrt.1 <- copy(data.L.1)
+data.L.sqrt.1[, sqrty := sqrt(y)]
+
+# Create hierarchical structure
+Light.sqrt.1 <- groupedData(sqrty ~ t | fishID, data = as.data.frame(data.L.sqrt.1[!(fishID%in%remove)]), order.groups = FALSE)
+
+# Re-evaluate terms
+list.L.sqrt.1 <- lmList(sqrty ~ poly(t,degree=2,raw=TRUE), Light.sqrt.1)
+pairs(list.L.sqrt.1, id = 0.01)
+```
+
+Correlation is reduced immensely. It won't be this apparent when we begin to fit LME models, but still, I am sure it will have an effect.
+
+Evaluate the significance of individual terms. Start with Optimal lambda data.
+
+```{r, ind-int-lam-L}
+plot(intervals(list.L.lam.1), ylab=NULL)
+```
+
+Square-root data.
+
+```{r, ind-int-sqrt-L}
+plot(intervals(list.L.sqrt.1), ylab=NULL)
+```
+
+Significance of intercept and slope terms is apparent in both cases. The significance of the quadratic term appears questionable. Luckily, this was what was observed for the Loperamide data as well. Indications that the model used for Loperamide Light phase data might be applicable here.
+
+## Begin to Fit LME Models
+
+Start with gls model with a correlation structure as before.
+
+```{r, aic-func}
+normAIC <- function(zz) {
+    zz$AIC <- zz$AIC - min(zz$AIC)
+    indx <- order(zz$AIC)
+    zz[indx,]
+}
+```
+```{r, gls-models-lam, echo=TRUE}
+gls.lam <- gls(lamy ~ poly(t,degree=2,raw=TRUE),
+               data = Light.lam.1,
+               method = "ML")
+gls1.lam <- update(gls.lam, correlation=corAR1(,form=~t|fishID))
+gls2.lam <- update(gls.lam, correlation=corARMA(,form=~t|fishID,p=1,q=1))
+gls3.lam <- update(gls.lam, correlation=corARMA(,form=~t|fishID,p=2,q=0))
+gls4.lam <- update(gls.lam, correlation=corARMA(,form=~t|fishID,p=2,q=2))
+
+zz <- AIC(gls.lam, gls1.lam, gls2.lam, gls3.lam, gls4.lam)
+normAIC(zz)
+```
+
+AR(1) structure is found to be best.
+
+```{r, gls-models-sqrt, echo=TRUE}
+gls.sqrt <- gls(sqrty ~ poly(t,degree=2,raw=TRUE),
+               data = Light.sqrt.1,
+               method = "ML")
+gls1.sqrt <- update(gls.sqrt, correlation=corAR1(,form=~t|fishID))
+gls2.sqrt <- update(gls.sqrt, correlation=corARMA(,form=~t|fishID,p=1,q=1))
+gls3.sqrt <- update(gls.sqrt, correlation=corARMA(,form=~t|fishID,p=2,q=0))
+gls4.sqrt <- update(gls.sqrt, correlation=corARMA(,form=~t|fishID,p=2,q=2))
+
+zz <- AIC(gls.sqrt, gls1.sqrt, gls2.sqrt, gls3.sqrt, gls4.sqrt)
+normAIC(zz)
+```
+
+With prior square-root transformed zebrafish data we found that the AR(1) structure was ideal as well.
+
+Identify optimal random effects structure.
+
+```{r, lmes-lam-L, echo=TRUE, warning=FALSE}
+ctrl <- lmeControl(opt = "optim", niterEM = 200, msTol = 1e-20, msMaxIter = 1000, apVar = FALSE)
+
+lmm1.lam.L <- lme(lamy ~ conc*poly(t,degree=2,raw=TRUE),
+            data = Light.lam.1,
+            random = reStruct(~1|fishID,REML=FALSE,pdClass="pdSymm"),
+            correlation = corAR1(,form=~t|fishID),
+            method = "ML",
+            control= ctrl)
+lmm2.lam.L <- lme(lamy ~ conc*poly(t,degree=2,raw=TRUE),
+            data = Light.lam.1,
+            random = reStruct(~poly(t,degree=1,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+            correlation = corAR1(,form=~t|fishID),
+            method = "ML",
+            control = ctrl)
+lmm3.lam.L <- lme(lamy ~ conc*poly(t,degree=2,raw=TRUE),
+            data = Light.lam.1,
+            random = reStruct(~poly(t,degree=2,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+            correlation = corAR1(,form=~t|fishID),
+            method = "ML",
+            control = ctrl)
+lmm4.lam.L <- lme(lamy ~ conc*poly(t,degree=3,raw=TRUE),
+            data = Light.lam.1,
+            random = reStruct(~poly(t,degree=3,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+            correlation = corAR1(,form=~t|fishID),
+            method = "ML",
+            control = ctrl)
+
+zz <- AIC(lmm1.lam.L,lmm2.lam.L,lmm3.lam.L,lmm4.lam.L)
+normAIC(zz)
+```
+
+Best model is found to be lmm3.lam.L which was also found optimal in Loperamide, in terms of random effects. Perform same determination of random effects structure for square-root transformed data.
+
+```{r, lmes-sqrt-L, echo = TRUE, warning=FALSE}
+ctrl <- lmeControl(opt = "optim", niterEM = 200, msTol = 1e-20, msMaxIter = 1000, apVar = FALSE)
+
+lmm1.sqrt.L <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+            data = Light.sqrt.1,
+            random = reStruct(~1|fishID,REML=FALSE,pdClass="pdSymm"),
+            correlation = corAR1(,form=~t|fishID),
+            method = "ML",
+            control = ctrl)
+lmm2.sqrt.L <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+            data = Light.sqrt.1,
+            random = reStruct(~poly(t,degree=1,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+            correlation = corAR1(,form=~t|fishID),
+            method = "ML",
+            control = ctrl)
+lmm3.sqrt.L <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+            data = Light.sqrt.1,
+            random = reStruct(~poly(t,degree=2,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+            correlation = corAR1(,form=~t|fishID),
+            method = "ML",
+            control = ctrl)
+lmm4.sqrt.L <- lme(sqrty ~ conc*poly(t,degree=3,raw=TRUE),
+              data = Light.sqrt.1,
+              random = reStruct(~poly(t,degree=3,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+              correlation = corAR1(,form=~t|fishID),
+              method = "ML",
+              control = ctrl)
+
+zz <- AIC(lmm1.sqrt.L,lmm2.sqrt.L,lmm3.sqrt.L,lmm4.sqrt.L)
+normAIC(zz)
+```
+
+Model with quadratic random effects term was once again found optimal. In the Loperamide model lmm2 and lmm3 were interchangeable for square-root transformed data. Here we see a more obvious benefit to modeling with a quadratic random effect
+
+## Visualize Residuals of Optimal Models
+
+Visualize the residuals of optimal models for both the lambda transformed and square-root transformed data to determine if one transformation-model combination produces more normal looking residuals.
+
+```{r, resid-qq-L-level0}
+par(mfrow=c(1,2))
+qqnorm(resid(lmm3.lam.L,level=0), main = "Normal Q-Q Plot Level=0: lmm3.lam.L")
+qqline(resid(lmm3.lam.L, level=0))
+qqnorm(resid(lmm3.sqrt.L,level=0), main = "Normal Q-Q Plot Level=0: lmm3.sqrt.L")
+qqline(resid(lmm3.sqrt.L, level=0))
+```
+
+```{r, resid-qq-L-level1}
+par(mfrow=c(1,2))
+qqnorm(resid(lmm3.lam.L,level=1), main = "Normal Q-Q Plot Level=1: lmm3.lam.L")
+qqline(resid(lmm3.lam.L, level=1))
+qqnorm(resid(lmm3.sqrt.L,level=1), main = "Normal Q-Q Plot Level=1: lmm3.sqrt.L")
+qqline(resid(lmm3.sqrt.L, level=1))
+```
+
+Residuals are pretty bad for bot transformations. For transformed data the subject-level (level=1) residuals look okay, but sample level residuals don't look so great. Picking a middle-ground transformation may provide better residuals.
+
+Plot residuals against fitted values. lambda then sqrt, level=1.
+
+```{r, stand-resid-L-level1}
+plot(lmm3.lam.L, main="Residuals by Time Level=1: lmm3.lam.L")
+plot(lmm3.sqrt.L, main="Residuals by Fitted Values Level=1: lmm3.sqrt.L")
+```
+
+level=0.
+
+```{r, resid-L-level0}
+plot(lmm3.lam.L, resid(.,level=0) ~ fitted(., level=0), abline = 0, main="Residuals by Time Level=0: lmm3.lam.L")
+plot(lmm3.sqrt.L, resid(.,level=0) ~ fitted(., level=0), abline = 0, main="Residuals by Time Level=0: lmm3.sqrt.L")
+```
+
+Heteroscedasticity in data is very apparent in both levels, but is worst at the sample level. Due largely to zero values in the Light I am sure. These graphics suggest that using a different transformation may result in better looking residuals.
+
+Try log10.
+
+```{r, cntr-data-L-log10, warning=FALSE}
+# Transform data
+data.L.log.1 <- copy(data.L.1)
+data.L.log.1[, logy := log10(y+1)]
+
+# Create hierarchical structure
+Light.log.1 <- groupedData(logy ~ t | fishID, data = as.data.frame(data.L.log.1[!(fishID%in%remove)]), order.groups = FALSE)
+
+# Fit model
+lmm3.log.L <- lme(logy ~ conc*poly(t,degree=2,raw=TRUE),
+            data = Light.log.1,
+            random = reStruct(~poly(t,degree=2,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+            correlation = corAR1(,form=~t|fishID),
+            method = "ML",
+            control = ctrl)
+```
+
+Evaluate residuals normality after log transformation.
+
+```{r, resid-qq-log-L-level1}
+par(mfrow=c(1,2))
+qqnorm(resid(lmm3.log.L,level=0), main = "Normal Q-Q Plot Level=0: lmm3.log.L")
+qqline(resid(lmm3.log.L, level=0))
+qqnorm(resid(lmm3.log.L,level=1), main = "Normal Q-Q Plot Level=1: lmm3.log.L")
+qqline(resid(lmm3.log.L, level=1))
+```
+
+The apparent normality of residuals appears to slightly improve at subject level. Evaluate residuals by fitted values to assess heteroscedasticity.
+
+```{r, plot-resid-log}
+plot(lmm3.log.L, resid(.,level=0) ~ fitted(., level=0), abline = 0, main="Residuals by Time Level=0: lmm3.log.L")
+```
+
+Heteroscedasticity is still very apparent in sample-level residuals.
+
+I want to point out that the parameters show similar concentration response changes across transformations. In other words, I don't know how much the transformations will affect the take-aways of our analysis after concentration-response fitting. It seems that adoption of the square-root transform could reduce our sensitivity.
+
+```{r, tTables-L, echo=TRUE}
+summary(lmm3.lam.L)$tTable
+summary(lmm3.sqrt.L)$tTable
+summary(lmm3.log.L)$tTable
+```
+
+Take-aways: the transformation that we choose for the data is going to have little to no effect on the heteroscedasticity of residuals vs. fitted values.
+
+## Evaluate Square-Root Model in a Few Ways
+
+Fit optimal sqrt model with REML and visualize population level fits.
+
+```{r, REML-fit-L, echo=TRUE, warning=FALSE}
+lmm3.L.REML <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+                   data = Light.sqrt.1,
+                   random = reStruct(~poly(t,degree=2,raw=TRUE)|fishID,REML=TRUE,pdClass="pdSymm"),
+                   correlation = corAR1(,form=~t|fishID),
+                   method = "REML",
+                   control = ctrl)
+```
+```{r, CI-func, echo=FALSE}
+# Evaluate predicted value at t=-9.5
+lme_fit_0 <- function(model, t) {
+  conc <- levels(model$data$conc)
+  new_data <- expand.grid(t=t, conc=conc)
+  
+  # Predict
+  new_data$pred <- predict(model, new_data, level=0)
+  
+  # Extract model matrix for the data being fit, and use to extract varCov matrix of predictions
+  designMat <- model.matrix(formula(model)[-2], new_data)
+  predVar <- diag(designMat %*% vcov(model) %*% t(designMat))
+  
+  # Caluclate SEs of fitted value and calculate CIs
+  new_data$SE <- sqrt(predVar)
+  new_data$upper <- new_data$pred + (2*new_data$SE)
+  new_data$lower <- new_data$pred - (2*new_data$SE)
+  
+  return(new_data)
+}
+```
+```{r, warning=FALSE}
+# Plot confidence intervals
+fitted_data <- lme_fit_0(lmm3.L.REML, t=unique(lmm3.L.REML$data$t))
+
+ggplot(data.L.sqrt.1, aes(x=t,y=sqrty,group=conc)) + 
+  stat_summary(fun = mean, geom="line", color="grey") +
+  stat_summary(mapping=aes(color=conc), fun = mean, geom="point", size=1) +
+  geom_line(fitted_data, mapping=aes(x=t,y=pred,color=conc)) +
+  geom_ribbon(fitted_data, mapping=aes(y=pred,ymin=lower,ymax=upper,fill=conc), alpha=0.1) +
+  scale_color_manual(values=colors, labels=legend.labels) +
+  scale_fill_manual(values=colors, labels=legend.labels) +
+  labs(title="Tebuconazole Light Data and Models: Square-Root Transformed",
+       x="Time", y="Square-Root(y)")
+```
+
+I don't think I am making the above confidence intervals correctly.
+
+Plot the residuals for concentration mean values.
+
+```{r, sample-level-residuals}
+#means.Light <- aggregate(Light.sqrt.1$sqrty, list(conc=Light.sqrt.1$conc,t=Light.sqrt.1$t), mean)
+to.plot <- merge(means.Light, fitted_data, by=c("conc","t"))
+to.plot$resid <- to.plot$x - to.plot$pred
+sigma <- stats::sd(to.plot$resid)
+to.plot$stResid <- to.plot$resid/sigma
+
+plot(to.plot$stResid ~ to.plot$pred, xlab="Fitted Values", ylab="Standardized Residuals", main="Tebuconazole Sample Level Residuals for Sample Time-period Means")
+abline(0,0,col="red")
+
+qqnorm(to.plot$resid, main="Tebuconazole Sample Level Residuals for Sample Time-Period Means")
+qqline(to.plot$resid)
+```
+
+I believe we are poorly fitting one of these concentration groups. I can't think of any immediate way to deal with this. I doubt a different linear model would capture these points well. My current guess is that modeling the heterogeneity of time will be best way to deal with these issues. Hopefully modeling heterogeneic time within subjects will induce a sample level correlation strucutre that takes this into account.
+
+```{r, level-0-outliers, echo=TRUE}
+to.plot[(abs(to.plot$stResid) > 2),]
+```
+
+Something I just noticed, fitting with REML completely changes the correlation of the random effects, increasing it immensely.
+
+```{r, RE_matrices, echo=TRUE}
+lmm3.sqrt.L$modelStruct$reStruct
+lmm3.L.REML$modelStruct$reStruct
+```
+
+
+Plot confidence intervals about fixed parameters to assess if estimator accuracy changes.
+
+```{r, intervals-Light-REML-ML}
+# ML estimations
+int.lmm3.L.REML <- intervals(lmm3.L.REML, which="fixed")
+
+conc <- unique(data.L$conc)
+int.lmm3.L.REML.dt <- as.data.table(int.lmm3.L.REML$fixed)
+int.lmm3.L.REML.dt[, conc := c(conc,0,conc,conc[-1])]
+int.lmm3.L.REML.dt[, param := c(rep("B_0",6),"B_1","B_2",rep("B_1",5),rep("B_2",5))]
+int.lmm3.L.REML.dt[, method:="REML"]
+
+# REML estimations
+int.lmm3.L <- intervals(lmm3.sqrt.L, which="fixed")
+
+conc <- unique(data.L$conc)
+int.lmm3.L.dt <- as.data.table(int.lmm3.L$fixed)
+int.lmm3.L.dt[, conc := c(conc,0,conc,conc[-1])]
+int.lmm3.L.dt[, param := c(rep("B_0",6),"B_1","B_2",rep("B_1",5),rep("B_2",5))]
+int.lmm3.L.dt[, method:="ML"]
+
+int.lmm.L <- rbind(int.lmm3.L.dt, int.lmm3.L.REML.dt)
+```
+```{r, plot-intervals-light }
+ggplot(int.lmm.L[conc!=0], aes(y=est.,x=log10(conc),color=method)) +
+  geom_point() +
+  geom_errorbar(aes(ymin=lower, ymax=upper)) +
+  facet_wrap(vars(param), scales="free_y") +
+  geom_hline(yintercept=0) +
+  labs(title = "Light LME Model Parameters for Loperamide Exposure",
+       subtitle = "Intersection of CI with y=0 indicates insignificant t-test p-value")
+```
+
+No apparent changes in estimator accuracy with fitting with REML.
+
+## Evaluate Assumptions of LME Model Using Model Fit with REML
+
+From the residual plots of the data we are obviously breaking many of the underlying assumptions of Linear Mixed Effects model: homoscedasticity of repeated measurements, and normality of subject-level residuals. However, I am unsure how much these assumptions matter for inferences made at the level of the sample. From Davidian's course I know there is some leeway allowed in regards to the positive-definiteness of random effects Var-Cov matrix, but I don't know if there other assumptions can be relaxed. 
+
+The residuals about fitted values for concentration groups look acceptable. Is this enough?
+
+Either way I am going to evaluate the model as recommended in _Mixed Effects Models in S and S-Plus_.
+
+Assumption 1: Within group errors are normal and i.i.d., with mean zero.
+
+To assess this we need to evaluate the normality of within group errors, the homoscedasticity or those error by group, the means of those errors, and the within-group correlation of those errors (which we addressed with an AR(1) model).
+
+Evaluate within-group errors means and variance by plotting all within group errors stratified by group (fishID).
+
+```{r, eval-wIn-group}
+plot(lmm3.sqrt.L, fishID ~ resid(., level=1), abline =  0)
+```
+
+Error means appear to be nearly centered at zero, but also appear skewed displayed by the presence of more outliers in the positive x direction than in the negative x-direction. This is probably reflective of the high occurrence of zero-values and some skew that wasn't adjusted by the power transform.
+
+Variance is not constant for all groups/fish with some fish being highly variable, but could this be attributed in some ways to sampling error?
+
+There seems to be increasing variance as one moves up the y axis. I believe fish on y-axis are order by plate number. Potentially we can attribute this change in variability to plate number, or potentially plate location.
+
+Plot residuals faceted by plate number.
+
+```{r, eval-apid}
+plot(lmm3.L.REML, resid(.,level=1) ~ fitted(.,level=1) | apid, abline = 0)
+```
+
+Variability in residuals is fairly consistent by plate. It seems that DNT-79 is particularly tight. It appears that some plates are more active, or are at least fitted with higher values. Refit model using the inclusion of well location variable to evaluate the effect of well location on subject variance and plot.
+
+```{r, eval-well_loc, warning=FALSE}
+data.L.sqrt.2 <- copy(data.L.sqrt.1)
+data.L.sqrt.2[rowi%in%c(1,8), well_loc:="outside"][coli%in%c(1,12), well_loc:="outside"]
+data.L.sqrt.2[is.na(well_loc), well_loc:="inside"]
+
+# Create hierarchical structure
+Light.sqrt.2 <- groupedData(sqrty ~ t | fishID, data = as.data.frame(data.L.sqrt.2[!(fishID%in%remove)]), order.groups = FALSE)
+
+# Fit model
+lmm3.L.REML.2 <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+                   data = Light.sqrt.2,
+                   random = reStruct(~poly(t,degree=2,raw=TRUE)|fishID,REML=TRUE,pdClass="pdSymm"),
+                   correlation = corAR1(,form=~t|fishID),
+                   method = "REML",
+                   control = ctrl)
+```
+
+```{r}
+plot(lmm3.L.REML.2, resid(.,level=1) ~ fitted(.,level=1) | well_loc, abline = 0)
+```
+
+Here it seems more apparent that well location is having an effect on within group variance. My guess is that this is because exterior wells tend to be less active than interior. This difference between interior and exterior wells was adjusted for in a paper using random effects and fixed effects. Maybe we can replicate that? Another paper included random effects for plate. Maybe we can replicate this as well.
+
+Evaluate heteroscedasticity with time.
+
+```{r}
+plot(lmm3.L.REML.2, resid(.,level=1) ~ t,
+     panel = function(x, y, ...) {
+              lattice::panel.grid()
+              panel.xyplot(x, y)
+              panel.loess(x, y, lty=2)
+              panel.abline(0, 0)
+     })
+```
+
+Obvious heteroscedasticity, but isn't that strong. Could be adjusted for with a power function. Centrality of errors at zero is nearly met.
+
+**Take-aways:** This model isn't accounting for confounding factors that likely affect mean responses and appear to produce heterogeneity in the underlying data. Specifically plate and location effects, and time effects. There are ways to account for these effect, some of which are addressed in published applications of LME models to zebrafish data (plate and well effects). I'm guessing that the source of heterogeneity that has the largest effect on the normality of our sample level residuals is time. This is can be adjusted for, figuring out how is another story. 
+
+# Assess Assumptions on Random Effects
+
+Random effect are assumed to normally distributed with mean zero and a covariance matrix that is identical for all groups, and are independent for different groups. Departures from these assumptions are assessed using qq-plots and pair correlation plots to assess marginal normality, identify outliers, and check assumption of homogeneity of variance.
+
+```{r, norm-of-ranef}
+layout.mat <- matrix(c(1,1,2,2,0,3,3,0),
+                      nrow=2, ncol=4, byrow=TRUE)
+layout(mat = layout.mat)
+qqnorm(ranef(lmm3.L.REML)[,1], main="Normal Q-Q Plot: REML b_0")
+qqline(ranef(lmm3.L.REML)[,1])
+qqnorm(ranef(lmm3.L.REML)[,2], main="Normal Q-Q Plot: REML b_1")
+qqline(ranef(lmm3.L.REML)[,2])
+qqnorm(ranef(lmm3.L.REML)[,3], main="Normal Q-Q Plot: REML b_2")
+qqline(ranef(lmm3.L.REML)[,3])
+```
+
+High degree of correlation between random effects estimates is apparent in the qq plots. Random effects are nearly normal with some obvious high outliers.
+
+```{r}
+qqnorm(lmm3.L.REML, ~ranef(.), id=0.1)
+```
+
+Where are these outliers occuring?
+
+```{r, id-otliers}
+outliers <- rownames( ranef(lmm3.L.REML)[order(ranef(lmm3.L.REML)[,1]),][144:150,] )
+unique( data.L[fishID%in%outliers,-c(11,12,13)] )
+```
+
+Outliers are not occurring in any one concentration group, which is reassuring. Continuing with the thought, assess the homogeneity of random effects by concentration group.
+
+```{r, homo-RE}
+pairs(lmm3.L.REML, ~ranef(.) |conc)
+```
+
+One might be able to argue that there is some heterogeneity, but it is not occurring in a concentration dependent way. Group 0.4 uM appears to be less variable than other groups. A potential worry here is that heterogeneity in concentration groups can result in random effects estimates being pulled away from their true values to compensate, i.e. fish in 0.4 are being fit with values that are too large.
+
+```{r, wIn-group-resid-conc}
+plot(lmm3.L.REML, resid(.) ~ fitted(.) | conc, abline = 0)
+```
+
+That is not obvious. 
+
+**Take-Away:** Overall, assumptions on the random effects of the model appear to be adhered too.
+
+
+

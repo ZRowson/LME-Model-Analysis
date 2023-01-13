@@ -1,0 +1,9 @@
+"0","ggplot(DNT60pmr0_long[t%in%c(11,31)], aes(x=y, fill=as.factor(t))) +"
+"0","  geom_histogram(position=""identity"", alpha = 0.4) + "
+"0","  labs(title = ""Extreme Sum Movement Distributions"","
+"0","       fill = ""time period"")"
+"2","`stat_bin()` using `bins = 30`. Pick better value with `binwidth`.
+"
+"2","Warning:"
+"2"," Removed 1094 rows containing non-finite values (stat_bin).
+"

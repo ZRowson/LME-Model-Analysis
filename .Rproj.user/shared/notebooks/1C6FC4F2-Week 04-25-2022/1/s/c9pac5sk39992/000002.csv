@@ -1,0 +1,2 @@
+"0","Light.lam <- groupedData(lamy ~ t | fishID, data = as.data.frame(data.L.lam[!(fishID%in%remove)]), order.groups = FALSE)"
+"0","Light.sqrt <- groupedData(sqrty ~ t | fishID, data = as.data.frame(data.L.sqrt[!(fishID%in%remove)]), order.groups = FALSE)"

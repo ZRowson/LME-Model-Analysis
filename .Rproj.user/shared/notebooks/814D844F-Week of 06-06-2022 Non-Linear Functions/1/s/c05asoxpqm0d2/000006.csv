@@ -1,0 +1,13 @@
+"0","nls(sqrty ~ logist1(t, AsymU, AsymL, xmid, scal),
+    data = sample.L)
+"
+"2","Warning in nls(sqrty ~ logist1(t, AsymU, AsymL, xmid, scal), data = sample.L) :"
+"2","
+ "
+"2"," No starting values specified for some parameters.
+Initializing ‘AsymU’, ‘AsymL’, ‘xmid’, ‘scal’ to '1.'.
+Consider specifying 'start' or using a selfStart model
+"
+"2","Error in nlsModel(formula, mf, start, wts) : 
+  singular gradient matrix at initial parameter estimates
+"

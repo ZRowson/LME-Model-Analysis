@@ -1,0 +1,10 @@
+"0","lmm1.D <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+            data = Dark.sqrt,
+            random = reStruct(~poly(t,degree=1,raw=TRUE)|fishID,REML=TRUE,pdClass=""pdSymm""),
+            correlation = corAR1(,form=~t|fishID),
+            method = ""REML"",
+            control = ctrl)
+"
+"2","Error in lme.formula(sqrty ~ conc * poly(t, degree = 2, raw = TRUE), data = Dark.sqrt,  : 
+  object 'ctrl' not found
+"

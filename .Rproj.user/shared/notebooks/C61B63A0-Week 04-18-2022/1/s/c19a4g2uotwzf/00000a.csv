@@ -1,0 +1,3 @@
+"0","conc <- rep(unique(data.L.sqrt$conc),each=20)"
+"0","fittedData1.L <- rbind(ctrlFit, do.call('rbind',fittedData.L))"
+"0","fittedDF <- cbind(conc, fittedData1.L)"

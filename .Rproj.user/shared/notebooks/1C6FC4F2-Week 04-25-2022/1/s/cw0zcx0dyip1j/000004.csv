@@ -1,0 +1,13 @@
+"0","ggplot(data.L.sqrt.1, aes(x=t,y=sqrty,group=conc)) + 
+  stat_summary(fun = mean, geom=""line"", color=""grey"") +
+  stat_summary(mapping=aes(color=conc), fun = mean, geom=""point"", size=1) +
+  geom_line(fitted_data, mapping=aes(x=t,y=pred,color=conc)) +
+  geom_ribbon(fitted_data, mapping=aes(y=pred,ymin=lower,ymax=upper,fill=conc), alpha=0.1) +
+  scale_color_manual(values=colors, labels=legend.labels) +
+  scale_fill_manual(values=colors, labels=legend.labels) +
+  labs(title=""Tebuconazole Light Data and Models: Square-Root Transformed"",
+       x=""Time"", y=""Square-Root(y)"")
+"
+"2","Error in ggplot(data.L.sqrt.1, aes(x = t, y = sqrty, group = conc)) : 
+  object 'data.L.sqrt.1' not found
+"

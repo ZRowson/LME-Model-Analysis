@@ -1,0 +1,1 @@
+"0","plot(lmm3.4rt, resid(.) ~ as.numeric(t), abline = 0)"

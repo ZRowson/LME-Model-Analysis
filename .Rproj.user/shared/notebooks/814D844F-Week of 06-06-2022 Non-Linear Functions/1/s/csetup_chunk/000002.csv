@@ -1,0 +1,25 @@
+"0","knitr::opts_chunk$set(echo = TRUE, cache=TRUE)"
+"0","library(nlme)"
+"0","library(lattice)"
+"0","library(data.table)"
+"2","Registered S3 method overwritten by 'data.table':
+  method           from
+  print.data.table     
+"
+"2","data.table 1.14.0 using 20 threads (see ?getDTthreads).  Latest news: r-datatable.com
+"
+"0","library(ggplot2)"
+"0","library(gabi)"
+"2","Loading required package: tcplfit2
+"
+"2","
+Attaching package: ‘tcplfit2’
+
+"
+"2","The following object is masked from ‘package:nlme’:
+
+    gnls
+
+"
+"2","Loading required package: magrittr
+"

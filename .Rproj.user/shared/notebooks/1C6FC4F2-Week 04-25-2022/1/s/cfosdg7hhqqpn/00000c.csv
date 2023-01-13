@@ -1,0 +1,1 @@
+"0","plot(lmm3.L.REML, resid(.,level=1) ~ fitted(.,level=1) | apid, abline = 0)"

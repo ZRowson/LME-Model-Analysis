@@ -1,0 +1,204 @@
+---
+title: "Week of 06-06-2022"
+author: "Zachary Rowson"
+date: "6/7/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache=TRUE)
+library(nlme)
+library(lattice)
+library(data.table)
+library(ggplot2)
+library(gabi)
+```
+
+## Introduction
+
+In this document I will attempt to fit non-linear mixed effects models to the Loperamide exposure data. If this is completed, I will evaluate the quality of fit and compare the fits to the quadratic model to evaluate if the movement data is sufficiently modeled.
+
+## Load Loperamide Data and Visualize
+
+```{r,raw-upload}
+load("../data/Padilla_DNT60_Loperamide.rda")
+
+# Split Light
+data <- copy(Padilla_DNT60_Loperamide)
+data.L <- Padilla_DNT60_Loperamide[t%in%11:30]
+data.D <- Padilla_DNT60_Loperamide[t%in%31:50]
+
+# Shift time measurements and save concentration as a factor
+data.L$t <- data.L$t - mean(data.L$t)
+data.L$conc <- as.factor(data.L$conc)
+data.D$t <- data.D$t - mean(data.D$t)
+data.D$conc <- as.factor(data.D$conc)
+
+# Identify individuals to remove
+remove <- Padilla_DNT60_Loperamide[is.na(y), unique(fishID)]
+```
+```{r, format-data}
+# Add well location, inside vs. outside, as co-variate
+data.L[rowi%in%c(1,8), well_loc:="outside"][coli%in%c(1,12), well_loc:="outside"]
+data.L[is.na(well_loc), well_loc:="inside"]
+data.D[rowi%in%c(1,8), well_loc:="outside"][coli%in%c(1,12), well_loc:="outside"]
+data.D[is.na(well_loc), well_loc:="inside"]
+
+# Transform data
+data.L.sqrt <- copy(data.L)
+data.L.sqrt[, sqrty := sqrt(y)]
+data.D.sqrt <- copy(data.D)
+data.D.sqrt[, sqrty := sqrt(y)]
+```
+```{r, hier-struct, echo=TRUE}
+Light.sqrt <- groupedData(sqrty ~ t | fishID, data = as.data.frame(data.L.sqrt[!(fishID%in%remove)]), order.groups = FALSE)
+Dark.sqrt <- groupedData(sqrty ~ t | fishID, data = as.data.frame(data.D.sqrt[!(fishID%in%remove)]), order.groups = FALSE)
+```
+```{r, pa-graphic, warning=FALSE}
+avg_func <- function(...) {
+  avg <- mean(...,na.rm=TRUE)
+  SE <- stats::sd(..., na.rm=TRUE) / sqrt(length(...))
+  
+  data.frame(y=avg, ymin=avg-SE, ymax=avg+SE)
+}
+
+# Plots
+ggplot(data.L.sqrt, aes(x=t,y=sqrty,fill=conc,color=conc)) + 
+  stat_summary(fun.data=avg_func, geom="ribbon", alpha=0.5) +
+  stat_summary(fun.data=avg_func, geom="line") +
+  labs(title="Loperamide Light Data: Square-Root Transformed",
+       fill="Concentration", color="Concentration",
+       x="Time", y="Square-Root(y)")
+ggplot(data.D.sqrt, aes(x=t,y=sqrty,fill=conc,color=conc)) + 
+  stat_summary(fun.data=avg_func, geom="ribbon", alpha=0.5) +
+  stat_summary(fun.data=avg_func, geom="line") +
+  labs(title="Loperamide Dark Data: Square-Root Transformed",
+       fill="Concentration", color="Concentration",
+       x="Time", y="Square-Root(y)")
+```
+
+# Attempt to Fit Non-Linear Functions
+
+As a first trial I will fit a more flexible polynomial function to see if this results in better fits.
+
+```{r, aic-func}
+normAIC <- function(zz) {
+    zz$AIC <- zz$AIC - min(zz$AIC)
+    indx <- order(zz$AIC)
+    zz[indx,]
+}
+```
+```{r, poly6}
+ctrl <- lmeControl(opt = "optim", niterEM = 200, msTol = 1e-20, msMaxIter = 1000, apVar = FALSE)
+lmm2 <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+            data = Light.sqrt,
+            random = reStruct(~poly(t,degree=2,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+            correlation = corAR1(,form=~t|fishID),
+            method = "ML",
+            control = ctrl)
+lmm4 <- lme(sqrty ~ conc*poly(t,degree=4,raw=TRUE),
+            data = Light.sqrt,
+            random = reStruct(~poly(t,degree=4,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+            correlation = corAR1(,form=~t|fishID),
+            method = "ML",
+            control = ctrl)
+lmm5 <- lme(sqrty ~ conc*poly(t,degree=5,raw=TRUE),
+            data = Light.sqrt,
+            random = reStruct(~poly(t,degree=5,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+            correlation = corAR1(,form=~t|fishID),
+            method = "ML",
+            control = ctrl)
+
+zz <- AIC(lmm2, lmm4, lmm5)
+normAIC(zz)
+```
+
+Adding more polynomial terms doesn't help.
+
+Fit a logistic model to the data in the Light.
+
+```{r, nlm}
+ctrl <- lmeControl(opt = "optim", niterEM = 200, msTol = 1e-20, msMaxIter = 1000, apVar = FALSE)
+
+nls.Light <- nlsList(sqrty ~ SSfpl(t, phi1, phi2, phi3, phi4),
+                     data = Light.sqrt,
+                     control = ctrl)
+sample <- sample(Light.sqrt$fishID, 20)
+plot(nls.Light, fishID ~ resid(.), abline = 0, subset=sample)
+```
+```{r, nlme}
+nlmm.Light <- nlme(sqrty ~ SSfpl(t, phi1, phi2, phi3, phi4),
+                   random = pdDiag(phi1 + phi2 + phi3 + phi4 ~ 1),
+                   data = Light.sqrt,
+                   control = ctrl)
+```
+
+## Try Something New
+
+Attempt to fit the models another way. Non linear models require initial estimates for parameter values. We need to provide initial estimates for the asymptotic speed that zebrafish take, the time at which the inflection point occurs, and the time elapsed between zebrafish reaching inflection point and obtaining 3/4 of their maximum speed.
+
+I will estimate these values from the sample averaged trend line. To simplify this process I will work only with a random sample of the control fish.
+
+```{r, random-sample-ctrl}
+ctrlFishID <- data[wllt=="v" & !(fishID%in%remove), unique(fishID)]
+fishSample <- sample(ctrlFishID, 16)
+data_sample <- data[fishID%in%fishSample]
+
+data_sample.L <- data_sample[t%in%11:30]
+
+# Shift time measurements and save concentration as a factor
+data_sample.L$t <- data_sample.L$t - mean(data_sample.L$t)
+data_sample.L$conc <- as.factor(data_sample.L$conc)
+
+# Transform data
+data_sample.L.sqrt <- copy(data_sample.L)
+data_sample.L.sqrt[, sqrty := sqrt(y)]
+```
+```{r, hier-struct-sample, echo=TRUE}
+sample.L <- groupedData(sqrty ~ t | fishID, data = as.data.frame(data_sample.L.sqrt), 
+                        order.groups = FALSE)
+```
+```{r, pa-graphic-sample, warning=FALSE}
+ggplot(sample.L, aes(x=t,y=sqrty,fill=conc,color=conc)) + 
+  stat_summary(fun.data=avg_func, geom="ribbon", alpha=0.5) +
+  stat_summary(fun.data=avg_func, geom="line") +
+  labs(title="Loperamide Exposure 16 Control Fish: Light Data Square-Root Transformed",
+       fill="Concentration", color="Concentration",
+       x="Time", y="Square-Root(y)")
+```
+
+Plot individual tracks of the zebrafish.
+
+```{r, ind-tracks}
+plot(sample.L)
+```
+
+Tracks of zebrafish are not clearly sigmoid. We will have to use a model with variable lower asymptote or else individual models will be too constrained. I worry about the ability of the sigmoid model to capture the high variability of these zebrafish tracks.
+
+From this random sample of fish the upper asymptotic speed appears to be 1.75 and the lower 0.75, the inflection point occurs at approximately -3 two minute periods, and it takes approximately 1 two minute period for the speed to go from half to three quarters of asymptotic speed.
+
+Go ahead and fit a logistic model to the whole data set.
+```{r, logistic-function}
+logist <- deriv( ~( AsymL-AsymU) / (1 + exp(-(x-xmid)/scal)),
+                c("AsymU", "AsymL", "xmid", "scal"),
+                function(x, AsymU, AsymL, xmid, scal) {})
+```
+```{r, set-initial-estimates}
+AsymU = 1.75 # Upper asymptote
+AsymL = 0.75
+xmid = -3
+scal = 1.5
+```
+```{r, nls-model}
+nls(sqrty ~ logist(t, AsymU, AsymL, xmid, scal),
+    start = c(AsymU=1.75, AsymL=0.75, xmid=-3, scal=1.5),
+    data = sample.L)
+```
+
+
+```{r, user-input-logistic}
+logist <- deriv( ~ Asym/(1+exp(-(x - xmid)/scal)), c("Asym","xmid","scal"), 
+                function(x, Asym, xmid, scal) {}) 
+```
+
+

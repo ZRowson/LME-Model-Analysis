@@ -1,0 +1,7 @@
+"0","# Apply log base 10 to movement data"
+"0","data.L.log10 <- Padilla_DNT60_Loperamide[t%in%11:30]"
+"0","data.L.log10[, logy := log10(y + 1)]"
+"0",""
+"0","# Shift time measurements and save concentration as a factor"
+"0","data.L.log10$t <- data.L.log10$t - min(data.L.log10$t)"
+"0","data.L.log10$conc <- as.factor(data.L.log10$conc)"

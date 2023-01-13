@@ -1,0 +1,21 @@
+"0","nest1 <- groupedData(y ~ conc|fishID, data =  Padilla_DNT60_Loperamide.L[conc==0.004],"
+"0","                         order.groups = FALSE)"
+"0","nest1$t <- nest1$t - min(nest1$t)"
+"0","# Model lme"
+"0","lmm1 <- lme(y ~ poly(t,degree=2,raw=TRUE),"
+"0","            correlation = corAR1(, form = ~ t | fishID),"
+"0","            random = ~ 0 + poly(t,degree=1,raw=TRUE) |fishID,"
+"0","            method = ""ML"","
+"0","            control = ctrl,"
+"0","            data = nest1)"
+"1","initial  value 1306.025626 
+"
+"1","final  value 1265.338365 
+"
+"1","converged
+"
+"0","lmm1$apVar"
+"1","[1]"
+"1"," ""Non-positive definite approximate variance-covariance"""
+"1","
+"

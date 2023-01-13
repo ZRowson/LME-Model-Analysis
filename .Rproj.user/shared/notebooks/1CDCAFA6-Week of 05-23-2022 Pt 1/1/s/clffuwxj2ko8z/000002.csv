@@ -1,0 +1,1 @@
+"0","plot(lmm.L, residuals(.) ~ fitted(.), main=""Light Phase: Residuals v. Fitted Values Level = 1"", abline = 0)"

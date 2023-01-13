@@ -1,0 +1,31 @@
+---
+title: "Week of 06/20/2022"
+author: "Zachary Rowson"
+date: "6/22/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(nlme)
+library(data.table)
+library(ggplot2)
+```
+
+## Introduction
+
+In this model I will attempt to a sample averaged model for the data without modeling the individual tracks of the zebrafish.
+
+## Load Data and Summarize into Means
+
+```{r, load-and-segment}
+load("../data/Padilla_DNT60_Loperamide.rda")
+
+data <- copy(Padilla_DNT60_Loperamide)
+data.avg <- copy(data)
+
+remove <- data[is.na(y), unique(fishID)]
+avg_by_time <- data.avg[!fishID%in%remove & wllq==1, .(meany=mean(y,na.rm=TRUE)), by=.(cpid,conc,t)]
+
+
+```

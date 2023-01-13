@@ -1,0 +1,2 @@
+"0","sample <- sample(unique(Dark.sqrt$fishID), 16)"
+"0","plot(Dark.sqrt[Dark.sqrt$fishID %in% sample,])"

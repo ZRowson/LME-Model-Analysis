@@ -1,0 +1,96 @@
+"0","lmm1 <- lme(y ~  conc*poly(t,degree=2,raw=TRUE),"
+"0","            correlation = corAR1(, form = ~ t | fishID),"
+"0","            random = reStruct(~1|fishID,REML=FALSE,pdClass=""pdSymm""),"
+"0","            method = ""ML"","
+"0","            control = ctrl,"
+"0","            data = nest.L)"
+"1","initial  value 25802.078873 
+"
+"1","iter  10 value 24856.152916
+"
+"1","final  value 24851.819847 
+"
+"1","converged
+"
+"0","lmm2 <- lme(y ~ conc*poly(t,degree=2,raw=TRUE),"
+"0","            correlation = corAR1(, form = ~ t | fishID),"
+"0","            random = reStruct(~poly(t,degree=1,raw=TRUE)|fishID,REML=FALSE,pdClass=""pdSymm""),"
+"0","            method = ""ML"","
+"0","            control = ctrl,"
+"0","            data = nest.L)"
+"1","initial  value 25545.371506 
+"
+"1","iter  10 value 24819.812846
+"
+"1","iter  20 value 24819.286103
+"
+"1","iter  30 value 24819.260016
+"
+"1","iter  40 value 24819.259260
+"
+"1","iter  50 value 24819.258939
+"
+"1","iter  60 value 24819.258850
+"
+"1","iter  70 value 24819.258846
+"
+"1","iter  80 value 24819.258846
+"
+"1","iter  90 value 24819.258844
+"
+"1","iter 100 value 24819.258843
+"
+"1","iter 110 value 24819.258843
+"
+"1","iter 120 value 24819.258843
+"
+"1","iter 130 value 24819.258843
+"
+"1","iter 140 value 24819.258843
+"
+"1","iter 150 value 24819.258842
+"
+"1","final  value 24819.258836 
+"
+"1","converged
+"
+"0","lmm3 <- lme(y ~ conc*poly(t,degree=2,raw=TRUE),"
+"0","            correlation = corAR1(, form = ~ t | fishID),"
+"0","            random = reStruct(~poly(t,degree=2,raw=TRUE)|fishID,REML=FALSE,pdClass=""pdSymm""),"
+"0","            method = ""ML"","
+"0","            control = ctrl,"
+"0","            data = nest.L)"
+"1","initial  value 25414.095313 
+"
+"1","iter  10 value 24815.631810
+"
+"1","iter  20 value 24807.120931
+"
+"1","iter  30 value 24806.796597
+"
+"1","iter  40 value 24806.723386
+"
+"1","iter  50 value 24806.701715
+"
+"1","iter  60 value 24806.667792
+"
+"1","iter  70 value 24806.656878
+"
+"1","iter  80 value 24806.655755
+"
+"1","iter  90 value 24806.653715
+"
+"1","iter 100 value 24806.653448
+"
+"1","iter 110 value 24806.653416
+"
+"1","iter 120 value 24806.653377
+"
+"1","iter 120 value 24806.653377
+"
+"1","iter 120 value 24806.653377
+"
+"1","final  value 24806.653377 
+"
+"1","converged
+"

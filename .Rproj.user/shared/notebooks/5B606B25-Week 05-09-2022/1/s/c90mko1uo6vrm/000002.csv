@@ -1,0 +1,8 @@
+"0","int.lmm.L.log.star <- intervals(lmm.L.log.star, which=""fixed"")"
+"0","int.log.dt.L <- as.data.table(int.lmm.L.log.star$fixed)"
+"0","concs <- unique(data$conc)"
+"0","int.log.dt.L[, conc := c(concs,0,concs,concs[-1])]"
+"0","int.log.dt.L[, param := c(rep(""B_0"",6),""B_1"",""B_2"",rep(""B_1"",5),rep(""B_2"",5))]"
+"0","int.log.dt.L[, model := rep(""log simulated"",18)]"
+"0",""
+"0","int.dt2.L <- rbind(int.dt.L, int.log.dt.L) "

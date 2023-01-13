@@ -1,0 +1,521 @@
+---
+title: "Week 05-09-2022"
+author: "Zachary Rowson"
+date: "5/9/2022"
+output: 
+    html_document:
+        code_folding: hide
+        toc: true
+        toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache=TRUE)
+library(nlme)
+library(lattice)
+library(data.table)
+library(ggplot2)
+library(gabi)
+library(MASS)
+library(MethylCapSig)
+```
+
+## Introduction
+
+This week I will address two issues with the model we have fit so far. First, adjustment for the heterogeneity of data by fitted values, and two, the model does not account for the heavy tailedness and skew of the residuals. 
+
+Problem one will be assessed by adjusting assumptions on the variance structure of the residuals and comparing model fits.
+
+Problem 2 will be addressed by simulating data using the model using two different assumptions about the model residuals. Assumption 1 will be that the residuals are normally distributed. Assumption 2 will be that the residuals are log-normally. Once this data is simulated, the model will be refit and changes in the estimated parameter values of the model will be addressed.
+
+## Problem 1: Heterogeneity
+
+```{r, iso-split-data, message=FALSE, warning=FALSE}
+load("../data/Padilla_DNT60_pmr0_long.rda")
+
+# Isolate Tebuconazole data
+chm <- "Tebuconazole"
+DNT60_data <- gabi::data_egids(DNT60pmr0_long)
+group <- DNT60_data[cpid==chm, unique(egid)]
+Padilla_DNT60_Tebuconazole <- DNT60_data[cpid==chm | (wllt=="v"&egid==group)]
+
+# Split data by experimental phase
+data <- copy(Padilla_DNT60_Tebuconazole)
+data.L <- Padilla_DNT60_Tebuconazole[t%in%11:30]
+data.D <- Padilla_DNT60_Tebuconazole[t%in%31:50]
+
+# Shift time measurements and save concentration as a factor
+data.L$t <- data.L$t - mean(data.L$t)
+data.L$conc <- as.factor(data.L$conc)
+data.D$t <- data.D$t - mean(data.D$t)
+data.D$conc <- as.factor(data.D$conc)
+
+# Add well location, inside vs. outside, as co-variate
+data.L[rowi%in%c(1,8), well_loc:="outside"][coli%in%c(1,12), well_loc:="outside"]
+data.L[is.na(well_loc), well_loc:="inside"]
+data.D[rowi%in%c(1,8), well_loc:="outside"][coli%in%c(1,12), well_loc:="outside"]
+data.D[is.na(well_loc), well_loc:="inside"]
+
+# Transform data
+data.L.sqrt <- copy(data.L)
+data.L.sqrt[, sqrty := sqrt(y)]
+data.D.sqrt <- copy(data.D)
+data.D.sqrt[, sqrty := sqrt(y)]
+
+# Identify individuals to remove
+remove <- Padilla_DNT60_Tebuconazole[is.na(y), unique(fishID)]
+```
+```{r, hier-struct, echo=TRUE}
+Light.sqrt <- groupedData(sqrty ~ t | fishID, data = as.data.frame(data.L.sqrt[!(fishID%in%remove)]), order.groups = FALSE)
+Dark.sqrt <- groupedData(sqrty ~ t | fishID, data = as.data.frame(data.D.sqrt[!(fishID%in%remove)]), order.groups = FALSE)
+```
+```{r, aic-func}
+normAIC <- function(zz) {
+    zz$AIC <- zz$AIC - min(zz$AIC)
+    indx <- order(zz$AIC)
+    zz[indx,]
+}
+```
+
+Fit Light phase model.
+
+```{r, fit-Light-model, echo=TRUE, warning=FALSE}
+ctrl <- lmeControl(opt = "optim", niterEM = 200, msTol = 1e-20, msMaxIter = 1000, apVar = FALSE)
+
+lmm.L <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+             data = Light.sqrt,
+             random = reStruct(~poly(t,degree=2,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+             correlation = corAR1(,form=~t|fishID),
+             method = "ML",
+             control = ctrl)
+```
+
+Fit Dark phase model.
+
+```{r, fit-Dark-model, echo = TRUE, warning=FALSE}
+lmm.D <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+            data = Dark.sqrt,
+            random = reStruct(~poly(t,degree=1,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+            correlation = corAR1(,form=~t|fishID),
+            method = "ML",
+            control = ctrl)
+```
+
+Evaluate the heterogeneity with time for Light.
+
+```{r, eval-t-hetero-L}
+plot(lmm.L, resid(.,level=1) ~ t,
+     panel = function(x, y, ...) {
+              lattice::panel.grid()
+              panel.xyplot(x, y)
+              panel.loess(x, y, lty=2)
+              panel.abline(0, 0)
+     })
+```
+
+Residuals are asymmetric which we have gathered before, but it appears that heterogeneity with time could be modeled well with some power function. Power function would require the estimation of only one parameter value.
+
+Evaluate normality of within group residuals.
+
+```{r, wIn-grp-resid-L}
+qqnorm(resid(lmm.L), main="Normal Q-Q Plot: W/In Group Resid")
+qqline(resid(lmm.L))
+```
+
+Non-normality is not that strong. Evaluate same issues for Dark model.
+
+```{r, eval-t-hetero-D}
+plot(lmm.D, resid(.,level=1) ~ t,
+     panel = function(x, y, ...) {
+              lattice::panel.grid()
+              panel.xyplot(x, y)
+              panel.loess(x, y, lty=2)
+              panel.abline(0, 0)
+     })
+```
+
+Function to apply to Dark data to account for time heterogeneity isn't so cut and dry. There appears to be increasing variability until the end of the Dark phase. We have seen that the beginning of the Dark phase tends to be less variable.
+
+```{r, wIn-grp-resid-D}
+qqnorm(resid(lmm.D), main="Normal Q-Q Plot: W/In Group Resid Dark")
+qqline(resid(lmm.D))
+```
+
+Severe non-normality of resiudals. Previously findings indicate that this can not be helped with the application of a different transformation. Notice the heavy degree of skew in the data.
+
+Begin updating models to include a variance function. Start with Light.
+
+```{r, update-lmm.L, echo=TRUE, warning=FALSE}
+lmm.L.1 <- update(lmm.L, weights = varConstPower())
+
+zz <- AIC(lmm.L, lmm.L.1)
+normAIC(zz)
+```
+
+Variance function reduces AIC _immensely_.
+
+Visualize change in normality of residuals.
+
+```{r, wIn-grp-resid}
+qqnorm(resid(lmm.L.1), main="Normal Q-Q Plot: W/In Group Resid with Variance Function Applied")
+qqline(resid(lmm.L.1))
+```
+
+Update Dark phase model.
+
+```{r, update-lmm.D, echo=TRUE, warning=FALSE, error=TRUE}
+ctrl <- lmeControl(opt = "optim", niterEM = 1000, msTol = 1e-20, msMaxIter = 1000000, apVar = FALSE)
+lmm.D.1 <- update(lmm.D, weights = varConstPower(), control=ctrl)
+```
+
+Model does not converge.
+
+## Problem 2: Simulate Residuals
+
+The model fit to Tebuconazole in Dark will be used to simulate data. The fixed effects are concentration interacting with 2nd degree polynomial of time and random effects are 1st degree polynomial for each fish. Correlation structure is AR(1). Model was fit to square root transformed data.
+
+### Light Phase
+
+#### Attempt to Simulate Normally Distributed Data
+
+```{r, generate-norm-resid}
+# Generate normal residuals
+
+# Generate within group covariance matrix
+phi <- lmm.L$modelStruct$corStruct
+V <- corMatrix(phi)[[1]]
+sigma <- rep(lmm.L$sigma, 20)
+Sigma <- diag(sigma) %*% V %*% diag(sigma)
+
+# Generate residuals as multivariate normal samples with means 0 and covariance matrix extracted from fitted model
+set.seed(2)
+mu <- rep(0, 20)
+N <- length( unique(Light.sqrt$fishID) )
+normResid.hat.L <- data.frame( MASS::mvrnorm(n=N,mu,Sigma,20,20) )
+```
+
+Use values fitted at the level of the individual to create new data with normally distributed residuals.
+
+```{r, generate-data}
+# Extract fitted values
+fittedData.L <- fitted(lmm.L, level=0, asList=TRUE)
+
+# Create new data by adding residuals to fitted values
+data.star.list.L <- lapply(1:length(fittedData.L), function(i) {
+                fittedData.L[[i]][21:40] + unlist( normResid.hat.L[i,]) 
+            })
+data.star.L <- as.data.frame( do.call('rbind', data.star.list.L) )
+data.star.L$fishID <- names(fittedData.L)
+```
+```{r, merge-data, warning=FALSE, message=FALSE}
+# Merge new data with descriptors
+descriptors.L <- unique( data.L.sqrt[,.(srcf,acid,cpid,apid,rowi,coli,well_loc,wllt,wllq,conc,fishID)] )[!fishID%in%remove]
+data.L.star <- merge(descriptors.L, data.star.L, by="fishID")
+
+# Format data
+melt.L.star <- melt(data.L.star, id.vars = colnames(data.L.star)[1:11], variable.name = "t", value.name = "sqrty")
+melt.L.star[, `:=` (srcf="Data Simulation", t=as.numeric(gsub("X","",t)))][, t:= t-mean(t)]
+head(melt.L.star)
+```
+
+Results shouldn't be any different, but refit models, and compare intervals and predictions to see if true.
+
+```{r, refit-model-L, echo=TRUE, warning=FALSE, message=FALSE}
+Light.star <- groupedData(sqrty ~ t | fishID, data = as.data.frame(melt.L.star), order.groups = FALSE)
+
+ctrl <- lmeControl(opt = "optim", niterEM = 200, msTol = 1e-20, msMaxIter = 1000, apVar = FALSE)
+
+lmm.L.star <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+                  data = Light.star,
+                  random = reStruct(~poly(t,degree=2,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+                  correlation = corAR1(,form=~t|fishID),
+                  method = "ML",
+                  control = ctrl)
+```
+```{r, create-intervals-lmmL-lmmLstar}
+int.lmm.L <- intervals(lmm.L, which="fixed")
+int.lmm.L.star <- intervals(lmm.L.star, which="fixed")
+
+int.list.L <- lapply(list(int.lmm.L$fixed,int.lmm.L.star$fixed), function(int.df) {
+  dt <- as.data.table(int.df)
+  concs <- unique(data$conc)
+  dt[, conc := c(concs,0,concs,concs[-1])]
+  dt[, param := c(rep("B_0",6),"B_1","B_2",rep("B_1",5),rep("B_2",5))]
+})
+
+int.dt.L <- do.call('rbind', int.list.L)
+int.dt.L[, model := rep(c("true","simulated"),each=18)]
+```
+```{r, plot-intervals-lmmL-lmmLstar}
+ggplot(int.dt.L, aes(x=est.,y=log10(conc),color=model)) +
+  geom_point() +
+  geom_errorbar(aes(xmin=lower, xmax=upper)) +
+  facet_wrap(vars(param), scales="free_x") +
+  geom_vline(xintercept=0)
+```
+
+#### Generate log-normal Distributed Data
+
+Transform the normal residuals simulated above to log-normal distrubuted and re-evaluate the parameter estimates.
+
+Perform transformation and visualize skew in log normal data.
+
+```{r, generate-logData, warning=FALSE, message=FALSE}
+logNormResid.hat.L <- as.data.frame( apply(normResid.hat.L, 2, function(col) {
+    transf <- exp(col)
+    transf <- transf - mean(transf)
+    transf
+    })
+    )
+
+normResid.melt.L <- melt(as.data.table(normResid.hat.L), measure.vars=colnames(normResid.hat.L), variable.name="t", value.name="y")
+logNormResid.melt.L <- melt(as.data.table(logNormResid.hat.L), measure.vars=colnames(logNormResid.hat.L), variable.name="t", value.name="y")
+ggplot() +
+    geom_histogram(data=logNormResid.melt.L, mapping=aes(x=y), fill="orange", color=NA, alpha=0.3) +
+    geom_histogram(data=normResid.melt.L, mapping=aes(x=y), fill="blue", color=NA, alpha=0.3) +
+    facet_wrap(vars(t))
+
+# Create new data by adding residuals to fitted values
+data.log.star.list.L <- lapply(1:length(fittedData.L), function(i) {
+                fittedData.L[[i]][21:40] + unlist( logNormResid.hat.L[i,] ) 
+            })
+data.log.star.L <- as.data.frame( do.call('rbind', data.log.star.list.L) )
+data.log.star.L$fishID <- names(fittedData.L)
+
+# Merge new data with descriptors
+data.L.log.star <- merge(descriptors.L, data.log.star.L, by="fishID")
+
+# Format data
+melt.L.log.star <- melt(data.L.log.star, id.vars = colnames(data.L.log.star)[1:11], variable.name = "t", value.name = "sqrty")
+melt.L.log.star[, `:=` (srcf="Data Simulation", t=as.numeric(gsub("X","",t)))][, t:= t-mean(t)]
+head(melt.L.log.star)
+```
+
+Refit the model to the log data and compare parameter estimates of all three models: original model, normal residuals model, and lognormal residuals model.
+
+```{r, refit-model-log-L, echo=TRUE, warning=FALSE, message=FALSE}
+Light.log.star <- groupedData(sqrty ~ t | fishID, data = as.data.frame(melt.L.log.star), order.groups = FALSE)
+
+ctrl <- lmeControl(opt = "optim", niterEM = 200, msTol = 1e-20, msMaxIter = 1000, apVar = FALSE)
+
+lmm.L.log.star <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+                  data = Light.log.star,
+                  random = reStruct(~poly(t,degree=2,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+                  correlation = corAR1(,form=~t|fishID),
+                  method = "ML",
+                  control = ctrl)
+```
+
+```{r, create-intervals-lmmL-log}
+int.lmm.L.log.star <- intervals(lmm.L.log.star, which="fixed")
+int.log.dt.L <- as.data.table(int.lmm.L.log.star$fixed)
+concs <- unique(data$conc)
+int.log.dt.L[, conc := c(concs,0,concs,concs[-1])]
+int.log.dt.L[, param := c(rep("B_0",6),"B_1","B_2",rep("B_1",5),rep("B_2",5))]
+int.log.dt.L[, model := rep("log simulated",18)]
+
+int.dt2.L <- rbind(int.dt.L, int.log.dt.L) 
+```
+```{r, plot-intervals-lmmLstar-log}
+ggplot(int.dt2.L, aes(x=est.,y=log10(conc),color=model)) +
+  geom_point() +
+  geom_errorbar(aes(xmin=lower, xmax=upper)) +
+  facet_wrap(vars(param), scales="free_x") +
+  geom_vline(xintercept=0)
+```
+
+Parameter estimates are very close to one another. We see that there is some change from log simulated and simualated parameter estimates.
+
+```{r, parameter-accuracy-L}
+int.dt2.L[, .(range=mean(upper-lower)), by=.(param,model)]
+```
+
+Parameters are least accurate for the log normal data.
+
+Evaluate Q-Q plots of within group residuals for all three Light phase models.
+
+```{r, qq-plots-sim}
+qqnorm(resid(lmm.L), main="Normal Q-Q Plot: W/In Group Resid Light")
+qqline(resid(lmm.L))
+qqnorm(resid(lmm.L.star), main="Normal Q-Q Plot: W/In Group Resid Sim Light")
+qqline(resid(lmm.L.star))
+qqnorm(resid(lmm.L.log.star), main="Normal Q-Q Plot: W/In Group Resid Sim log Light")
+qqline(resid(lmm.L.log.star))
+```
+
+The skew in the data is highly apparent in the log normal data, but the parameter estimates don't seem to be that different. If confidence intervals can be used to assess the significance of the differences, then no difference is apparent. 
+
+Curve fitting of the parameter estimates to evaluate changes in hitcalls or potency metrics could be used to assess the potential effect that the broken assumptions could have on our assay sensitivity/ability to detect chemical perturbation precisely.
+
+### Dark Phase
+
+#### Attempt to Simulate Normally Distributed Data
+
+```{r, generate-norm-resid-D}
+# Generate normal residuals
+
+# Generate within group covariance matrix
+phi <- lmm.D$modelStruct$corStruct
+V <- corMatrix(phi)[[1]]
+sigma <- rep(lmm.D$sigma, 20)
+Sigma <- diag(sigma) %*% V %*% diag(sigma)
+
+# Generate residuals data as multivariate normal samples with means 0 and covariance matrix calculated above
+set.seed(2)
+mu <- rep(0, 20)
+N <- length( unique(Dark.sqrt$fishID) )
+normResid.hat.D <- data.frame( MASS::mvrnorm(n=N,mu,Sigma,20,20) )
+```
+
+Use values fitted at the level of the individual to create new data with normally distributed residuals.
+
+```{r, generate-data-D}
+# Extract fitted values
+fittedData.D <- fitted(lmm.D, level=0, asList=TRUE)
+
+# Create new data by adding residuals to fitted values
+data.star.list.D <- lapply(1:length(fittedData.D), function(i) {
+                fittedData.D[[i]][21:40] + unlist( normResid.hat.D[i,]) 
+            })
+data.star.D <- as.data.frame( do.call('rbind', data.star.list.D) )
+data.star.D$fishID <- names(fittedData.D)
+```
+```{r, merge-data-D, warning=FALSE, message=FALSE}
+# Merge new data with descriptors
+descriptors.D <- unique( data.D.sqrt[,.(srcf,acid,cpid,apid,rowi,coli,well_loc,wllt,wllq,conc,fishID)] )[!fishID%in%remove]
+data.D.star <- merge(descriptors.D, data.star.D, by="fishID")
+
+# Format data
+melt.D.star <- melt(data.D.star, id.vars = colnames(data.D.star)[1:11], variable.name = "t", value.name = "sqrty")
+melt.D.star[, `:=` (srcf="Data Simulation", t=as.numeric(gsub("X","",t)))][, t:= t-mean(t)]
+head(melt.D.star)
+```
+```{r, refit-model-D, echo=TRUE, warning=FALSE, message=FALSE}
+Dark.star <- groupedData(sqrty ~ t | fishID, data = as.data.frame(melt.D.star), order.groups = FALSE)
+
+ctrl <- lmeControl(opt = "optim", niterEM = 200, msTol = 1e-20, msMaxIter = 1000, apVar = FALSE)
+
+lmm.D.star <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+                  data = Dark.star,
+                  random = reStruct(~poly(t,degree=2,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+                  correlation = corAR1(,form=~t|fishID),
+                  method = "ML",
+                  control = ctrl)
+```
+
+Results shouldn't be any different, but compare intervals and predictions to see if true.
+
+```{r, create-intervals-lmmD-lmmDstar}
+int.lmm.D <- intervals(lmm.D, which="fixed")
+int.lmm.D.star <- intervals(lmm.D.star, which="fixed")
+
+int.list.D <- lapply(list(int.lmm.D$fixed,int.lmm.D.star$fixed), function(int.df) {
+  dt <- as.data.table(int.df)
+  concs <- unique(data$conc)
+  dt[, conc := c(concs,0,concs,concs[-1])]
+  dt[, param := c(rep("B_0",6),"B_1","B_2",rep("B_1",5),rep("B_2",5))]
+})
+
+int.dt.D <- do.call('rbind', int.list.D)
+int.dt.D[, model := rep(c("true","simulated"),each=18)]
+```
+```{r, plot-intervals-lmmD-lmmDstar}
+ggplot(int.dt.D, aes(x=est.,y=log10(conc),color=model)) +
+  geom_point() +
+  geom_errorbar(aes(xmin=lower, xmax=upper)) +
+  facet_wrap(vars(param), scales="free_x") +
+  geom_vline(xintercept=0)
+```
+
+#### Generate log-normal Distributed Data
+
+Transform the normal residuals simulated above to log-normal distributed and re-evaluate the parameter estimates.
+
+Perform transformation and visualize skew in log normal data.
+
+```{r, generate-logData.D, warning=FALSE, message=FALSE}
+logNormResid.hat.D <- as.data.frame( apply(normResid.hat.D, 2, function(col) {
+    transf <- exp(col)
+    transf <- transf - mean(transf)
+    transf
+    })
+    )
+
+normResid.melt.D <- melt(as.data.table(normResid.hat.D), measure.vars=colnames(normResid.hat.D), variable.name="t", value.name="y")
+logNormResid.melt.D <- melt(as.data.table(logNormResid.hat.D), measure.vars=colnames(logNormResid.hat.D), variable.name="t", value.name="y")
+ggplot() +
+    geom_histogram(data=logNormResid.melt.D, mapping=aes(x=y), fill="orange", color=NA, alpha=0.3) +
+    geom_histogram(data=normResid.melt.D, mapping=aes(x=y), fill="blue", color=NA, alpha=0.3) +
+    facet_wrap(vars(t))
+
+# Create new data by adding residuals to fitted values
+data.log.star.list.D <- lapply(1:length(fittedData.D), function(i) {
+                fittedData.D[[i]][21:40] + unlist( logNormResid.hat.D[i,] ) 
+            })
+data.log.star.D <- as.data.frame( do.call('rbind', data.log.star.list.D) )
+data.log.star.D$fishID <- names(fittedData.D)
+
+# Merge new data with descriptors
+data.D.log.star <- merge(descriptors.D, data.log.star.D, by="fishID")
+
+# Format data
+melt.D.log.star <- melt(data.D.log.star, id.vars = colnames(data.D.log.star)[1:11], variable.name = "t", value.name = "sqrty")
+melt.D.log.star[, `:=` (srcf="Data Simulation", t=as.numeric(gsub("X","",t)))][, t:= t-mean(t)]
+head(melt.D.log.star)
+```
+
+Refit the model to the log data and compare parameter estimates of all three models: original model, normal residuals model, and lognormal residuals model.
+
+```{r, refit-model-log-D, echo=TRUE, warning=FALSE, message=FALSE}
+Dark.log.star <- groupedData(sqrty ~ t | fishID, data = as.data.frame(melt.D.log.star), order.groups = FALSE)
+
+ctrl <- lmeControl(opt = "optim", niterEM = 200, msTol = 1e-20, msMaxIter = 1000, apVar = FALSE)
+
+lmm.D.log.star <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+                  data = Dark.log.star,
+                  random = reStruct(~poly(t,degree=2,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+                  correlation = corAR1(,form=~t|fishID),
+                  method = "ML",
+                  control = ctrl)
+```
+
+```{r, create-intervals-lmmD-log}
+int.lmm.D.log.star <- intervals(lmm.D.log.star, which="fixed")
+int.log.dt.D <- as.data.table(int.lmm.D.log.star$fixed)
+concs <- unique(data$conc)
+int.log.dt.D[, conc := c(concs,0,concs,concs[-1])]
+int.log.dt.D[, param := c(rep("B_0",6),"B_1","B_2",rep("B_1",5),rep("B_2",5))]
+int.log.dt.D[, model := rep("log simulated",18)]
+
+int.dt2.D <- rbind(int.dt.D, int.log.dt.D) 
+```
+```{r, plot-intervals-lmmD-lmmDstar-log}
+ggplot(int.dt2.D, aes(x=est.,y=log10(conc),color=model)) +
+  geom_point() +
+  geom_errorbar(aes(xmin=lower, xmax=upper)) +
+  facet_wrap(vars(param), scales="free_x") +
+  geom_vline(xintercept=0)
+```
+
+Parameter estimates are different, but confidence intervals for estimates overlap. Can this be interpreted as an indicator of no difference? Evaluate the width of parameter estimates.
+
+```{r, parameter-accuracy-D}
+int.dt2.D[, .(range=mean(upper-lower)), by=.(param,model)]
+```
+
+Parameter estimates are similar in accuracy. Log normal data produces the most inaccurate parameter estimates.
+
+Evaluate Q-Q plots of within group residuals for all three Light phase models.
+
+```{r, qq-plots-sim-D}
+qqnorm(resid(lmm.D), main="Normal Q-Q Plot: W/In Group Resid Dark")
+qqline(resid(lmm.D))
+qqnorm(resid(lmm.D.star), main="Normal Q-Q Plot: W/In Group Resid Sim Dark")
+qqline(resid(lmm.D.star))
+qqnorm(resid(lmm.D.log.star), main="Normal Q-Q Plot: W/In Group Resid Sim log Dark")
+qqline(resid(lmm.D.log.star))
+```
+
+The skew in the data is highly apparent in the log normal data, but the parameter estimates don't seem to be that different. If confidence intervals can be used to assess the significance of the differences, then no difference is apparent. 
+
+Curve fitting of the parameter estimates to evaluate changes in hitcalls or potency metrics could be used to assess the potential effect that the broken assumptions could have on our assay sensitivity/ability to detect chemical perturbation precisely.

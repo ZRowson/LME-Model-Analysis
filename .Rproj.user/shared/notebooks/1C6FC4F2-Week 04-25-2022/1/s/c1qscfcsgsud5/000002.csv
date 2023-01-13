@@ -1,0 +1,10 @@
+"0","lmm1.1.lam.L <- lme(lamy ~ conc*poly(t,degree=2,raw=TRUE),
+            data = Light.lam,
+            random = reStruct(~1|fishID,REML=FALSE,pdClass=""pdSymm""),
+            correlation = corARMA(,form=~t|fishID,p=1,q=1),
+            method = ""ML"",
+            control = ctrl)
+"
+"2","Error in `coef<-.corARMA`(`*tmp*`, value = value[parMap[, i]]) : 
+  Coefficient matrix not invertible
+"

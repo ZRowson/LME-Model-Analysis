@@ -1,0 +1,1 @@
+"0","qqnorm(resid(lmm3.log10,level=0), main = ""Normal Q-Q Plot Level=0: lmm3.log10"")"

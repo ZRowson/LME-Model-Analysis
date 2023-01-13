@@ -1,0 +1,670 @@
+---
+title: "Week 04-18-2022"
+author: "Zachary Rowson"
+date: "4/22/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, cache=TRUE)
+library(nlme)
+library(data.table)
+library(ggplot2)
+```
+
+## Introduction
+
+In this report I will be finalizing the LME model for Padilla zebrafish LMR assay for DNT Loperamide exposure data. Light data model was never finalized. Data was never fit with centered time data. In Light there was also signs in the residuals that the inclusion of a cubic polynomial time may benefit the model. These two operations will be performed. Then Dark data will be fit, CIs for Light and Dark sample level parameters will be graphed, and significance tests evaluated.
+
+## Load and Visualize Data
+
+Loading and transformation of data will not be shown. Time data will be centered and movement data will be square root transformed. Light and Dark data will be plotted separately.
+
+```{r,raw-upload}
+load("../data/Padilla_DNT60_Loperamide.rda")
+
+# Split Light
+data <- copy(Padilla_DNT60_Loperamide)
+data.L <- Padilla_DNT60_Loperamide[t%in%11:30]
+data.D <- Padilla_DNT60_Loperamide[t%in%31:50]
+
+# Shift time measurements and save concentration as a factor
+data.L$t <- data.L$t - mean(data.L$t)
+data.L$conc <- as.factor(data.L$conc)
+data.D$t <- data.D$t - mean(data.D$t)
+data.D$conc <- as.factor(data.D$conc)
+
+# Identify individuals to remove
+remove <- Padilla_DNT60_Loperamide[is.na(y), unique(fishID)]
+```
+```{r, transf-data}
+# Transform data
+data.L.sqrt <- copy(data.L)
+data.L.sqrt[, sqrty := sqrt(y)]
+data.D.sqrt <- copy(data.D)
+data.D.sqrt[, sqrty := sqrt(y)]
+```
+```{r, hier-struct}
+# Create hierarchical structure
+Light.sqrt <- groupedData(sqrty ~ t | fishID, data = as.data.frame(data.L.sqrt[!(fishID%in%remove)]), order.groups = FALSE)
+Dark.sqrt <- groupedData(sqrty ~ t | fishID, data = as.data.frame(data.D.sqrt[!(fishID%in%remove)]), order.groups = FALSE)
+```
+
+```{r, sa-graphic, warning=FALSE}
+avg_func <- function(...) {
+  avg <- mean(...,na.rm=TRUE)
+  SE <- stats::sd(..., na.rm=TRUE) / sqrt(length(...))
+  
+  data.frame(y=avg, ymin=avg-SE, ymax=avg+SE)
+}
+ggplot(data.L.sqrt, aes(x=t,y=sqrty,fill=conc,color=conc)) + 
+  stat_summary(fun.data=avg_func, geom="ribbon", alpha=0.5) +
+  stat_summary(fun.data=avg_func, geom="line") +
+  labs(title="Loperamide Light Data: Square-Root Transformed",
+       fill="Concentration", color="Concentration",
+       x="Time", y="Square-Root(y)")
+ggplot(data.D.sqrt, aes(x=t,y=sqrty,fill=conc,color=conc)) + 
+  stat_summary(fun.data=avg_func, geom="ribbon", alpha=0.5) +
+  stat_summary(fun.data=avg_func, geom="line") +
+  labs(title="Loperamide Dark Data: Square-Root Transformed",
+       fill="Concentration", color="Concentration",
+       x="Time", y="Square-Root(y)")
+```
+
+Plot individual trends, Light and then Dark.
+
+```{r, ss-graphic}
+sample <- sample(unique(Dark.sqrt$fishID), 16)
+plot(Light.sqrt[Light.sqrt$fishID %in% sample,])
+plot(Dark.sqrt[Dark.sqrt$fishID %in% sample,])
+```
+
+## Fit Models to Light and Dark Data
+
+Light data was never evaluated with centered time. Evaluate the centered time data Light models. Fit cubic model to see if it is preferred by AIC.
+
+```{r, aic-func, echo = FALSE}
+normAIC <- function(zz) {
+    zz$AIC <- zz$AIC - min(zz$AIC)
+    indx <- order(zz$AIC)
+    zz[indx,]
+}
+```
+```{r, models-L, echo = TRUE, warning=FALSE}
+ctrl <- lmeControl(opt = "optim", niterEM = 200, msTol = 1e-20, msMaxIter = 1000, apVar = FALSE)
+
+lmm1.L <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+            data = Light.sqrt,
+            random = reStruct(~1|fishID,REML=FALSE,pdClass="pdSymm"),
+            correlation = corAR1(,form=~t|fishID),
+            method = "ML",
+            control = ctrl)
+lmm2.L <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+            data = Light.sqrt,
+            random = reStruct(~poly(t,degree=1,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+            correlation = corAR1(,form=~t|fishID),
+            method = "ML",
+            control = ctrl)
+lmm3.L <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+            data = Light.sqrt,
+            random = reStruct(~poly(t,degree=2,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+            correlation = corAR1(,form=~t|fishID),
+            method = "ML",
+            control = ctrl)
+lmm4.L <- lme(sqrty ~ conc*poly(t,degree=3,raw=TRUE),
+              data = Light.sqrt,
+              random = reStruct(~poly(t,degree=3,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+              correlation = corAR1(,form=~t|fishID),
+              method = "ML",
+              control = ctrl)
+
+zz <- AIC(lmm1.L,lmm2.L,lmm3.L,lmm4.L)
+normAIC(zz)
+```
+
+```{r, random-effects-L}
+lmm2.L$modelStruct$reStruct
+lmm3.L$modelStruct$reStruct
+lmm4.L$modelStruct$reStruct
+```
+
+Amazing how much correlation of random effects changes with the introduction of a cubic term. Visualize this behavior.
+
+```{r, corr-scatter-plots}
+plot(pairs(lmm2.L), title = "Correlation of REs for un-centered data")
+plot(pairs(lmm3.L), main = "Correlation of REs for centered data")
+plot(pairs(lmm4.L), main = "Correlation of REs for centered data")
+```
+
+We need to evaluate the residuals of the models and the accuracy of parameter estimates to see if using the cubic model in Light would actually be beneficial for the purposes of evaluating chemical effect.
+
+## Evaluate Models
+
+First, evaluate parameter estimation accuracy.
+
+```{r, create-intervals-lmm2.L-4.L}
+int.lmm2.L <- intervals(lmm2.L, which="fixed")
+int.lmm4.L <- intervals(lmm4.L, which="fixed")
+
+concs <- unique(Padilla_DNT60_Loperamide$conc)
+int.lmm2.L.dt <- as.data.table(int.lmm2.L$fixed)
+int.lmm4.L.dt <- as.data.table(int.lmm4.L$fixed)
+int.lmm2.L.dt[, conc := c(concs,0,concs,concs[-1])]
+int.lmm4.L.dt[, conc := c(concs,0,0,concs,concs[-1],concs[-1])]
+int.lmm2.L.dt[, param := c(rep("B_0",10),"B_1","B_2",rep("B_1",9),rep("B_2",9))]
+int.lmm4.L.dt[, param := c(rep("B_0",10),"B_1","B_2","B_3",rep("B_1",9),rep("B_2",9),rep("B_3",9))]
+
+int.dt.L <- rbind(int.lmm2.L.dt,int.lmm4.L.dt)
+int.dt.L[, model := rep(c("lmm2.L","lmm4.L"),times=c(30,40))]
+```
+```{r, plot-intervals-L}
+ggplot(int.dt.L[conc!=0], aes(x=est.,y=log10(conc),color=model)) +
+  geom_point() +
+  geom_errorbar(aes(xmin=lower, xmax=upper)) +
+  facet_wrap(vars(param), scales="free_x") +
+  geom_vline(xintercept=0)
+```
+
+Confidence around slope parameter estimates is much smaller for lmm2.L. The introduction of 10 more parameters, a cubic parameter for every concentration group, may explain the loss in accuracy. For our purposes lmm2.L model may be more ideal. Evaluate the change in parameter accuracy b/t lmm2.L and lmm3.L. Then visualize the fits and residuals.
+
+```{r, create-intervals-lmm2.L-3.L}
+int.lmm3.L <- intervals(lmm3.L, which="fixed")
+
+int.lmm3.L.dt <- as.data.table(int.lmm3.L$fixed)
+int.lmm3.L.dt[, conc := c(concs,0,concs,concs[-1])]
+int.lmm3.L.dt[, param := c(rep("B_0",10),"B_1","B_2",rep("B_1",9),rep("B_2",9))]
+
+int.dt.L2 <- rbind(int.lmm2.L.dt,int.lmm3.L.dt)
+int.dt.L2[, model := rep(c("lmm2.L","lmm3.L"),each=30)]
+```
+```{r, plot-intervals-lmm2.L-3.L}
+ggplot(int.dt.L2[conc!=0], aes(x=est.,y=log10(conc),color=model)) +
+  geom_point() +
+  geom_errorbar(aes(xmin=lower, xmax=upper)) +
+  facet_wrap(vars(param), scales="free_x") +
+  geom_vline(xintercept=0)
+```
+
+Little to no difference except at intercept term. Visualize the fits.
+
+## Compare Fitted models
+
+Visually evaluate the fitted models for lmm2.L, lmm3.L, and lmm4.L. Start with lmm2 vs. lmm3. nlme plotting functions limit us to 2 models at a time.
+
+```{r, lmm2-v-lmm3-SS}
+comparePred23.L <- comparePred(lmm2.L,lmm3.L)
+sample <- sample(comparePred23.L$.groups, 20)
+
+plot(comparePred23.L[comparePred23.L$.groups%in%sample,])
+```
+
+Fits are essentially identical.
+
+```{r, lmm2-v-lmm4-SS}
+comparePred24.L <- comparePred(lmm2.L,lmm4.L)
+sample <- sample(comparePred24.L$.groups, 20)
+
+plot(comparePred24.L[comparePred24.L$.groups%in%sample,])
+```
+
+Cubic term adds slight cubic appearance to the fits but the fits are super similar. For some subjects, not observed in this random sample, the cubic term may be more beneficial.
+
+Compare the population-averaged models.
+
+```{r, fit-funcs-234-L}
+t <- unique(Light.sqrt$t)
+fixedEf2.L <- fixef(lmm2.L)
+fixedEf3.L <- fixef(lmm3.L)
+fixedEf4.L <- fixef(lmm4.L)
+fittedData.L <-lapply(2:10, function(i) {
+  # lmm2 function
+  c2 <- fixedEf2.L[i] + fixedEf2.L[1]
+  b2 <- fixedEf2.L[11+i] + fixedEf2.L[11]
+  a2 <- fixedEf2.L[20+i] + fixedEf2.L[12]
+  f2 <- function(x) c2 + (b2*x) + (a2*(x^2))
+  
+  # lmm3 function
+  c3 <- fixedEf3.L[i] + fixedEf3.L[1]
+  b3 <- fixedEf3.L[11+i] + fixedEf3.L[11]
+  a3 <- fixedEf3.L[20+i] + fixedEf3.L[12]
+  f3 <- function(x) c3 + (b3*x) + (a3*(x^2))
+  
+  data.frame("t" = t,
+             "pred2" = f2(t),
+             "pred3" = f3(t))
+})
+fittedData.L4 <-lapply(2:10, function(i) {
+  # lmm2 function
+  d4 <- fixedEf4.L[i] + fixedEf4.L[1]
+  c4 <- fixedEf4.L[12+i] + fixedEf4.L[11]
+  b4 <- fixedEf4.L[21+i] + fixedEf4.L[12]
+  a4 <- fixedEf4.L[30+i] + fixedEf4.L[13]
+  f4 <- function(x) d4 + (c4*x) + (b4*(x^2)) + (a4*(x^3))
+  
+  data.frame("t" = t,
+             "pred4" = f4(t))
+})
+
+```
+
+```{r, ctrl-fit-funcs-234-L}
+  # lmm2 function
+  c2 <- fixedEf2.L[1]
+  b2 <- fixedEf2.L[11]
+  a2 <- fixedEf2.L[12]
+  f2 <- function(x) c2 + (b2*x) + (a2*(x^2))
+  
+  # lmm3 function
+  c3 <- fixedEf3.L[1]
+  b3 <- fixedEf3.L[11]
+  a3 <- fixedEf3.L[12] 
+  f3 <- function(x) c3 + (b3*x) + (a3*(x^2))
+  
+  # lmm4 function
+  d4 <- fixedEf4.L[1]
+  c4 <- fixedEf4.L[11]
+  b4 <- fixedEf4.L[12]
+  a4 <- fixedEf4.L[13] 
+  f4 <- function(x) d4 + (c4*x) + (b4*(x^2)) + (a4*(x^3))
+
+ctrlFit <- data.frame("t" = t,
+             "pred2" = f2(t),
+             "pred3" = f3(t),
+             "pred4" = f4(t))
+```
+
+```{r}
+conc <- rep(unique(data.L.sqrt$conc),each=20)
+fittedData1.L <- cbind(do.call('rbind',fittedData.L), pred4 = do.call('rbind',fittedData.L4)$pred4)
+fittedData2.L <- rbind(ctrlFit, fittedData1.L)
+fittedDF <- cbind(conc, fittedData2.L)
+fittedDF.long <- reshape(fittedDF, varying = c("pred2","pred3","pred4"), v.names = "y", timevar =      "model",  direction = "long")
+```
+
+```{r, plot-fits-234, warning=FALSE}
+ggplot(data.L.sqrt, aes(x=t,y=sqrty)) + 
+  stat_summary(fun = mean) +
+  geom_line(fittedDF.long, mapping = aes(x=t,y=y,color=as.factor(model))) + 
+  facet_wrap(vars(conc)) +
+  labs(title="Loperamide Light Data and Models: Square-Root Transformed",
+       color="Model",
+       x="Time", y="Square-Root(y)") +
+  scale_color_discrete(labels = c("lmm2","lmm3","lmm4"))
+```
+
+Cubic term doesn't add curvature at the beginning of the Light phase for all concentration groups. I was hoping it would do this. Cubic function appears to model some concentrations better than others.
+
+## Plot Model Resiudals
+
+Evaluate normality of residuals, residuals by time and residuals by concentration.
+
+```{r, resid-qqnorm-lmm2.L}
+par(mfrow=c(1,2))
+qqnorm(resid(lmm2.L,level=0), main = "Normal Q-Q Plot Level=0: lmm2.L")
+qqline(resid(lmm2.L, level=0))
+qqnorm(resid(lmm2.L,level=1), main = "Normal Q-Q Plot Level=1: lmm2.L")
+qqline(resid(lmm2.L, level=1))
+```
+
+```{r, resid-qqnorm-lmm4.L}
+par(mfrow=c(1,2))
+qqnorm(resid(lmm4.L,level=0), main = "Normal Q-Q Plot Level=0: lmm4.L")
+qqline(resid(lmm4.L, level=0))
+qqnorm(resid(lmm4.L,level=1), main = "Normal Q-Q Plot Level=1: lmm4.L")
+qqline(resid(lmm4.L, level=1))
+```
+
+Residual values look okay for sample level (level = 0), but you can see at the tail end what is likely the effect of zero values in the Light data. Comparing lmm2.L and lmm4.L there is surprisingly little to no change in the sample-level residuals. At the level of the subject it seems like fits are better. I am going to stick with lmm2.L.
+
+Before I finish this section I want to mention one problem of these models, both Light and Dark, the heterogeneity of time periods. In the nlme book I purchased there are variance functions described that can be applied to deal with this heterogeneity. One in particular can model variance as a power function of time. I will show the residuals of lmm2.L against time to demonstrate this power-like behavior. The addition of this variance function would increase the number of parameters estimated, so the benefit of doing so is questionable. In a further iteration of this model I imagine this being something we attempt to do.
+
+```{r, resid-by-t-lmm2.L}
+plot(lmm2.L, resid(.,level=0) ~ as.numeric(t), abline = c(-0.5,0,0.5), main="Residuals by Time Level=0: lmm2.L")
+```
+
+Refit lmm2.L with REML. This will be our final Light phase model.
+
+```{r, light-REML, echo=TRUE, warning=FALSE}
+lmm2.L.REML <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+            data = Light.sqrt,
+            random = reStruct(~poly(t,degree=1,raw=TRUE)|fishID,REML=TRUE,pdClass="pdSymm"),
+            correlation = corAR1(,form=~t|fishID),
+            method = "REML",
+            control = ctrl)
+```
+
+Visualize the population fits by concentration group.
+
+```{r, fit-func-L}
+t <- unique(Light.sqrt$t)
+fixedEf.L <- fixef(lmm2.L.REML)
+fittedData.L <-lapply(2:10, function(i) {
+  # Create functions
+  c <- fixedEf.L[i] + fixedEf.L[1]
+  b <- fixedEf.L[11+i] + fixedEf.L[11]
+  a <- fixedEf.L[20+i] + fixedEf.L[12]
+  f <- function(x) c + (b*x) + (a*(x^2))
+  
+  data.frame("t" = t,
+             "fit" = f(t))
+})
+```
+```{r, ctrl-fit-funcs-L}
+# lmm2 function
+c <- fixedEf.L[1]
+b <- fixedEf.L[11]
+a <- fixedEf.L[12]
+f <- function(x) c + (b*x) + (a*(x^2))
+
+
+ctrlFit <- data.frame("t" = t,
+             "fit" = f(t))
+```
+
+```{r}
+conc <- rep(unique(data.L.sqrt$conc),each=20)
+fittedData1.L <- rbind(ctrlFit, do.call('rbind',fittedData.L))
+fittedDF <- cbind(conc, fittedData1.L)
+```
+
+```{r, warning=FALSE}
+ggplot(data.L.sqrt, aes(x=t,y=sqrty,group=conc)) + 
+  stat_summary(fun = mean, geom="line", color="grey") +
+  stat_summary(mapping=aes(color=conc), fun = mean, geom="point", size=1) +
+  geom_line(fittedDF, mapping = aes(x=t,y=fit,color=as.factor(conc))) + 
+  labs(title="Loperamide Light Data and Models: Square-Root Transformed",
+       color="Conc",
+       x="Time", y="Square-Root(y)")
+```
+
+## Dark Model
+
+Fit Dark model with REML. Dark model identified in Week 04-11-2022 report will be used. Evaluation of that model was performed in that report. Note that "lmm3" full quadratic model will be used. I have yet to perform Aikake weight calculations.
+
+```{r, model-D, echo = TRUE, warning=FALSE}
+ctrl <- lmeControl(opt = "optim", niterEM = 200, msTol = 1e-20, msMaxIter = 1000, apVar = FALSE)
+
+lmm3.D.REML <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+            data = Dark.sqrt,
+            random = reStruct(~poly(t,degree=2,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+            correlation = corAR1(,form=~t|fishID),
+            method = "REML",
+            control = ctrl)
+```
+
+Visualize the population fits by concentration group.
+
+```{r, fit-func-D}
+t <- unique(Dark.sqrt$t)
+fixedEf.D <- fixef(lmm3.D.REML)
+fittedData.D <-lapply(2:10, function(i) {
+  # Create functions
+  c <- fixedEf.D[i] + fixedEf.D[1]
+  b <- fixedEf.D[11+i] + fixedEf.D[11]
+  a <- fixedEf.D[20+i] + fixedEf.D[12]
+  f <- function(x) c + (b*x) + (a*(x^2))
+  
+  data.frame("t" = t,
+             "fit" = f(t))
+})
+```
+```{r, ctrl-fit-funcs-D}
+c <- fixedEf.D[1]
+b <- fixedEf.D[11]
+a <- fixedEf.D[12]
+f <- function(x) c + (b*x) + (a*(x^2))
+
+
+ctrlFit <- data.frame("t" = t,
+             "fit" = f(t))
+```
+
+```{r}
+conc <- rep(unique(data.D.sqrt$conc),each=20)
+fittedData1.D <- rbind(ctrlFit, do.call('rbind',fittedData.D))
+fittedDF <- cbind(conc, fittedData1.D)
+```
+
+```{r, warning=FALSE}
+ggplot(data.D.sqrt, aes(x=t,y=sqrty,group=conc)) + 
+  stat_summary(fun = mean, geom="line", color="grey") +
+  stat_summary(mapping=aes(color=conc), fun = mean, geom="point", size=1) +
+  geom_line(fittedDF, mapping = aes(x=t,y=fit,color=as.factor(conc))) + 
+  labs(title="Loperamide Dark Data and Models: Square-Root Transformed",
+       color="Conc",
+       x="Time", y="Square-Root(y)")
+```
+
+Overall Dark model appears to fit the Dark phase data much better than Light model fits Light.
+
+## Plot Confidence Intervals in Conc-Resp Mode and Evaluate t-Tests
+
+Light parameters.
+
+```{r, intervals-Light-REML}
+int.lmm2.L.REML <- intervals(lmm2.L.REML, which="fixed")
+
+int.lmm2.L.REML.dt <- as.data.table(int.lmm2.L.REML$fixed)
+int.lmm2.L.REML.dt[, conc := c(concs,0,concs,concs[-1])]
+int.lmm2.L.REML.dt[, param := c(rep("B_0",10),"B_1","B_2",rep("B_1",9),rep("B_2",9))]
+```
+```{r, plot-intervals-light }
+ggplot(int.lmm2.L.REML.dt[conc!=0], aes(y=est.,x=log10(conc))) +
+  geom_point() +
+  geom_errorbar(aes(ymin=lower, ymax=upper)) +
+  facet_wrap(vars(param), scales="free_y") +
+  geom_hline(yintercept=0) +
+  labs(title = "Light LME Model Parameters for Loperamide Exposure",
+       subtitle = "Intersection of CI with y=0 indicates insignificant t-test p-value")
+```
+
+Dark parameters.
+
+```{r, intervals-Dark}
+int.lmm3.D <- intervals(lmm3.D.REML, which="fixed")
+
+int.lmm3.D.dt <- as.data.table(int.lmm3.D$fixed)
+int.lmm3.D.dt[, conc := c(concs,0,concs,concs[-1])]
+int.lmm3.D.dt[, param := c(rep("B_0",10),"B_1","B_2",rep("B_1",9),rep("B_2",9))]
+```
+```{r, plot-intervals-Dark}
+ggplot(int.lmm3.D.dt[conc!=0], aes(y=est.,x=log10(conc))) +
+  geom_point() +
+  geom_errorbar(aes(ymin=lower, ymax=upper)) +
+  facet_wrap(vars(param), scales="free_y") +
+  geom_hline(yintercept=0) +
+  labs(title = "Dark LME Model Parameters for Loperamide Exposure",
+       subtitle = "Intersection of CI with y=0 indicates insignificant t-test p-value")
+```
+
+Evaluate t-tests for Light.
+
+```{r, tTable-D}
+tTable.L <- as.data.frame(summary(lmm2.L.REML)$tTable[-c(1,11,12),])
+rownames(tTable.L) <- c(paste(rownames(tTable.L)[1:9], "B_0"),
+                        paste(rownames(tTable.L)[1:9], "B_1"),
+                        paste(rownames(tTable.L)[1:9], "B_2"))
+pVal <- format(tTable.L[,"p-value"], scientific = FALSE)
+tTable.L[,"p-value"] <- gsub('.{9}$', '', pVal)
+tTable.L
+```
+
+Significant differences are seen at 0.012 uM, 12 uM and 40 uM for B_0, and at 40 uM for B_1. Note that Loperamide was found active in Average Speed in Light and Average Acceleration in Light endpoints.
+
+Evaluate t-tests for Dark.
+
+```{r, tTable-L}
+tTable.D <- as.data.frame(summary(lmm3.D.REML)$tTable[-c(1,11,12),])
+rownames(tTable.D) <- c(paste(rownames(tTable.D)[1:9], "B_0"),
+                        paste(rownames(tTable.D)[1:9], "B_1"),
+                        paste(rownames(tTable.D)[1:9], "B_2"))
+pVal <- format(tTable.D[,"p-value"], scientific = FALSE)
+tTable.D[,"p-value"] <- gsub('.{6}$', '', pVal)
+tTable.D
+```
+
+Significant differences are seen at 0.004 uM for B_0, 40uM for B_1, and 0.004 uM for B_2. Note that Loperamide wasn't found active in any endpoints in Dark.
+
+## Evaluate Phase Starting Points (Freeze and Startle)
+
+In order to evaluate the starting points of each phase we need to find the estimate associated with each optimal model at t=0 (rather shifted t=-9.5) and extract a measure or error around this estimate in order to construct confidence intervals.
+
+Start with Light model. Confidence intervals will be calculated about the fitted value at t=-9.5. SEs of these estimates will be calculated using the variance-covariance matrix of the fixed effects parameters. CIs will use t-tests with n-3 DF, 3 parameters per concentration, to assess accuracy of fitted values.
+
+Calculate for treatment groups first.
+
+```{r, Light-starting-point-CIs, echo=TRUE}
+fixedEf.L <- lmm2.L.REML$coefficients$fixed # Fixed effect parameter values
+varFix.L <- lmm2.L.REML$varFix # VarCov matrix for fixed effects
+
+y.hat.t_0 <- lapply(2:10, function(i) {
+  
+  t_0 <- -9.5 # Initial time point for centered data.
+  
+  # Extract parameter values to find model value at t = t_0
+  B_0 <- fixedEf.L[i]
+  B_1 <- fixedEf.L[11+i]
+  B_2 <- fixedEf.L[20+i]
+  
+  # Extract Variance and Covariance of fixed effects to calculate SE of fitted value
+  var.B_0 <- varFix.L[i,i]
+  var.B_1 <- varFix.L[11+i,11+i]
+  var.B_2 <- varFix.L[20+i,20+i]
+  cov.B_0.B_1 <- varFix.L[i,11+i]
+  cov.B_0.B_2 <- varFix.L[i,20+i]
+  cov.B_1.B_2 <- varFix.L[11+i,20+i]
+  
+  # Find fitted value and SE
+  mu.t_0 <- B_0 + B_1*t_0 + B_2*(t_0^2)
+  se.t_0 <- var.B_0 + (t_0^2)*var.B_1 + (t_0^4)*var.B_2 + 2*(t_0*cov.B_0.B_1 + (t_0^2)*cov.B_0.B_2 + (t_0^3)*cov.B_1.B_2)
+  
+  # Calculate CI
+  n = length( unique(Light.sqrt$fishID[Light.sqrt$conc==concs[i]]) ) # Number of observations
+  alpha = 0.05
+  CI.t_0 <- se.t_0*qt(1-(alpha/2), n-3)
+  data.frame(mu.t_0 = mu.t_0,
+             se.t_0 = se.t_0,
+             CI.t_0 = CI.t_0)
+})
+
+y.hat.t_0.df <- cbind(conc=concs[-1], do.call('rbind', y.hat.t_0))
+
+```
+
+Calculate for control group.
+
+```{r, ctrl-Light-t-0, echo=TRUE}
+  t_0 <- -9.5
+  
+  # Extract parameter values to find control model value at t = t_0
+  B_0 <- fixedEf.L[1]
+  B_1 <- fixedEf.L[11]
+  B_2 <- fixedEf.L[13]
+  
+  # Extract Variance and Covariance of fixed effects to calculate SE of fitted value
+  var.B_0 <- varFix.L[1,1]
+  var.B_1 <- varFix.L[11,11]
+  var.B_2 <- varFix.L[12,12]
+  cov.B_0.B_1 <- varFix.L[1,11]
+  cov.B_0.B_2 <- varFix.L[1,12]
+  cov.B_1.B_2 <- varFix.L[11,12]
+  
+  # Find fitted value and SE
+  mu.t_0.ctrl.L <- B_0 + B_1*t_0 + B_2*(t_0^2)
+  se.t_0.ctrl.L <- var.B_0 + (t_0^2)*var.B_1 + (t_0^4)*var.B_2 + 2*(t_0*cov.B_0.B_1 + (t_0^2)*cov.B_0.B_2 + (t_0^3)*cov.B_1.B_2)
+  
+  # Calculate CI
+  n = length( unique(Light.sqrt$fishID[Light.sqrt$conc==concs[1]]) ) # Number of observations
+  alpha = 0.05
+  CI.t_0.ctrl.L <- se.t_0.ctrl.L*qt(1-(alpha/2), n-3)
+  
+y.hat.t_0.ctrl.L <- c(mu.t_0=mu.t_0.ctrl.L, se.t_0=se.t_0.ctrl.L, CI.t_0=CI.t_0.ctrl.L)
+```
+
+Plot confidence intervals.
+
+```{r, Light-plot-t_0, echo=TRUE}
+ggplot(y.hat.t_0.df, aes(y=mu.t_0,x=log10(conc))) +
+  geom_point() +
+  geom_errorbar(aes(ymin=(mu.t_0-CI.t_0), ymax=(mu.t_0+CI.t_0))) +
+  geom_hline(yintercept=0) +
+  labs(title = "Light LME Model: Fitted Value at Initial Time interval",
+       subtitle = "Intersection of CI with y=0 indicates insignificant t-test p-value",
+       y = "Fitted Value - (Control Fitted Value)")
+```
+
+Repeat for Dark model. Code for calculating confidence intervals won't be shown, but method is identical to method above.
+
+```{r, Dark-starting-point-CIs}
+fixedEf.D <- lmm3.D.REML$coefficients$fixed # Fixed effect parameter values
+varFix.D <- lmm3.D.REML$varFix # VarCov matrix for fixed effects
+
+y.hat.t_0 <- lapply(2:10, function(i) {
+  
+  t_0 <- -9.5 # Initial time point for centered data
+  
+  # Extract parameter values to find model value at t = t_0
+  B_0 <- fixedEf.D[i]
+  B_1 <- fixedEf.D[11+i]
+  B_2 <- fixedEf.D[20+i]
+  
+  # Extract Variance and Covariance of fixed effects to calculate SE of fitted value
+  var.B_0 <- varFix.D[i,i]
+  var.B_1 <- varFix.D[11+i,11+i]
+  var.B_2 <- varFix.D[20+i,20+i]
+  cov.B_0.B_1 <- varFix.D[i,11+i]
+  cov.B_0.B_2 <- varFix.D[i,20+i]
+  cov.B_1.B_2 <- varFix.D[11+i,20+i]
+  
+  # Find fitted value and SE
+  mu.t_0 <- B_0 + B_1*t_0 + B_2*(t_0^2)
+  se.t_0 <- var.B_0 + (t_0^2)*var.B_1 + (t_0^4)*var.B_2 + 2*(t_0*cov.B_0.B_1 + (t_0^2)*cov.B_0.B_2 + (t_0^3)*cov.B_1.B_2)
+  
+  # Calculate CI
+  n = length( unique(Dark.sqrt$fishID[Dark.sqrt$conc==concs[i]]) ) # Number of observations
+  alpha = 0.05
+  CI.t_0 <- se.t_0*qt(1-(alpha/2), n-3)
+  data.frame(mu.t_0 = mu.t_0,
+             se.t_0 = se.t_0,
+             CI.t_0 = CI.t_0)
+})
+
+y.hat.t_0.df <- cbind(conc=concs[-1], do.call('rbind', y.hat.t_0))
+
+```
+```{r, ctrl-Dark-t-0}
+  t_0 <- -9.5
+  
+  # Extract parameter values to find model value at t = t_0
+  B_0 <- fixedEf.D[1]
+  B_1 <- fixedEf.D[11]
+  B_2 <- fixedEf.D[13]
+  
+  # Extract Variance and Covariance of fixed effects to calculate SE of fitted value
+  var.B_0 <- varFix.D[1,1]
+  var.B_1 <- varFix.D[11,11]
+  var.B_2 <- varFix.D[12,12]
+  cov.B_0.B_1 <- varFix.D[1,11]
+  cov.B_0.B_2 <- varFix.D[1,12]
+  cov.B_1.B_2 <- varFix.D[11,12]
+  
+  # Find fitted value and SE
+  mu.t_0.ctrl.D <- B_0 + B_1*t_0 + B_2*(t_0^2)
+  se.t_0.ctrl.D <- var.B_0 + (t_0^2)*var.B_1 + (t_0^4)*var.B_2 + 2*(t_0*cov.B_0.B_1 + (t_0^2)*cov.B_0.B_2 + (t_0^3)*cov.B_1.B_2)
+  
+  # Calculate CI
+  n = length( unique(Dark.sqrt$fishID[Dark.sqrt$conc==concs[1]]) ) # Number of observations
+  alpha = 0.05
+  CI.t_0.ctrl.D <- se.t_0.ctrl.D*qt(1-(alpha/2), n-3)
+  
+y.hat.t_0.ctrl.D <- c(mu.t_0=mu.t_0.ctrl.D, se.t_0=se.t_0.ctrl.D, CI.t_0=CI.t_0.ctrl.D)
+```
+```{r, Dark-plot-t_0}
+ggplot(y.hat.t_0.df, aes(y=mu.t_0,x=log10(conc))) +
+  geom_point() +
+  geom_errorbar(aes(ymin=(mu.t_0-CI.t_0), ymax=(mu.t_0+CI.t_0))) +
+  geom_hline(yintercept=0) +
+  labs(title = "Dark LME Model: Fitted Value at Initial Time interval",
+       subtitle = "Intersection of CI with y=0 indicates insignificant t-test p-value",
+       y = "Fitted Value - (Control Fitted Value)")
+```

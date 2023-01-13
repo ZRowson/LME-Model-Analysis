@@ -1,0 +1,6 @@
+"0","ggplot(data.D.sqrt, aes(x=t,y=sqrty,fill=conc,color=conc)) + "
+"0","  stat_summary(fun.data=avg_func, geom=""ribbon"", alpha=0.5) +"
+"0","  stat_summary(fun.data=avg_func, geom=""line"") +"
+"0","  labs(title=""Loperamide Dark Data: Square-Root Transformed"","
+"0","       fill=""Concentration"", color=""Concentration"","
+"0","       x=""Time"", y=""Square-Root(y)"")"

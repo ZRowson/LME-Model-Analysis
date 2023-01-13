@@ -1,0 +1,8 @@
+"0","ggplot(data.L.sqrt, aes(x=t,y=sqrty)) + "
+"0","  stat_summary(fun = mean) +"
+"0","  geom_line(fittedDF.long, mapping = aes(x=t,y=y,color=as.factor(model))) + "
+"0","  facet_wrap(vars(conc)) +"
+"0","  labs(title=""Loperamide Light Data and Models: Square-Root Transformed"","
+"0","       color=""Model"","
+"0","       x=""Time"", y=""Square-Root(y)"") +"
+"0","  scale_color_discrete(labels = c(""lmm2"",""lmm3"",""lmm4""))"

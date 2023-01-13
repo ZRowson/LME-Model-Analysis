@@ -1,0 +1,4 @@
+"0","layout.mat <- matrix(c(1,1,2,2,0,3,3,0),"
+"0","                      nrow=2, ncol=4, byrow=TRUE)"
+"0","layout(mat = layout.mat)"
+"0","qqnorm(ranef(lmm3.L.REML)[,1], main=""Normal Q-Q Plot: REML b_0"")"

@@ -1,0 +1,199 @@
+---
+title: "Week of 05/23/2022"
+author: "Zachary Rowson"
+date: "5/26/2022"
+output:
+  html_document:
+        code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache=TRUE)
+library(nlme)
+library(lattice)
+library(data.table)
+library(ggplot2)
+library(gabi)
+```
+
+## Introduction
+
+Here I will attempt to adjust the model for the heterogeneity of variance dependent on the expected value of movement data.
+
+## Fit Models and Evaluate Heterogeneity
+
+```{r, iso-split-data, message=FALSE, warning=FALSE}
+load("../data/Padilla_DNT60_pmr0_long.rda")
+
+# Isolate Tebuconazole data
+chm <- "Tebuconazole"
+DNT60_data <- gabi::data_egids(DNT60pmr0_long)
+group <- DNT60_data[cpid==chm, unique(egid)]
+Padilla_DNT60_Tebuconazole <- DNT60_data[cpid==chm | (wllt=="v"&egid==group)]
+
+# Split data by experimental phase
+data <- copy(Padilla_DNT60_Tebuconazole)
+data.L <- Padilla_DNT60_Tebuconazole[t%in%11:30]
+data.D <- Padilla_DNT60_Tebuconazole[t%in%31:50]
+
+# Shift time measurements and save concentration as a factor
+data.L$t <- data.L$t - mean(data.L$t)
+data.L$conc <- as.factor(data.L$conc)
+data.D$t <- data.D$t - mean(data.D$t)
+data.D$conc <- as.factor(data.D$conc)
+
+# Add well location, inside vs. outside, as co-variate
+data.L[rowi%in%c(1,8), well_loc:="outside"][coli%in%c(1,12), well_loc:="outside"]
+data.L[is.na(well_loc), well_loc:="inside"]
+data.D[rowi%in%c(1,8), well_loc:="outside"][coli%in%c(1,12), well_loc:="outside"]
+data.D[is.na(well_loc), well_loc:="inside"]
+
+# Transform data
+data.L.sqrt <- copy(data.L)
+data.L.sqrt[, sqrty := sqrt(y)]
+data.D.sqrt <- copy(data.D)
+data.D.sqrt[, sqrty := sqrt(y)]
+
+# Identify individuals to remove
+remove <- Padilla_DNT60_Tebuconazole[is.na(y), unique(fishID)]
+```
+```{r, hier-struct, echo=TRUE}
+Light.sqrt <- groupedData(sqrty ~ t | fishID, data = as.data.frame(data.L.sqrt[!(fishID%in%remove)]), order.groups = FALSE)
+Dark.sqrt <- groupedData(sqrty ~ t | fishID, data = as.data.frame(data.D.sqrt[!(fishID%in%remove)]), order.groups = FALSE)
+```
+```{r, aic-func}
+normAIC <- function(zz) {
+    zz$AIC <- zz$AIC - min(zz$AIC)
+    indx <- order(zz$AIC)
+    zz[indx,]
+}
+```
+
+Fit Light phase model.
+
+```{r, fit-Light-model, echo=TRUE, warning=FALSE}
+ctrl <- lmeControl(opt = "optim", niterEM = 200, msTol = 1e-10, msMaxIter = 1000, apVar = FALSE)
+
+lmm.L <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+             data = Light.sqrt,
+             random = reStruct(~poly(t,degree=2,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+             correlation = corAR1(,form=~t|fishID),
+             method = "ML",
+             control = ctrl)
+```
+
+Fit Dark phase model.
+
+```{r, fit-Dark-model, echo = TRUE, warning=FALSE}
+lmm.D <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+            data = Dark.sqrt,
+            random = reStruct(~poly(t,degree=1,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+            correlation = corAR1(,form=~t|fishID),
+            method = "ML",
+            control = ctrl)
+```
+
+Visualize residuals by fitted values.
+
+```{r, vis-residuals}
+plot(lmm.L, residuals(.) ~ fitted(.), main="Light Phase: Residuals v. Fitted Values Level = 1", abline = 0)
+plot(lmm.D, residuals(.) ~ fitted(.), main="Dark Phase: Residuals v. Fitted Values Level = 1", abline = 0)
+```
+
+Residuals appear to display a gain-loss like pattern where variance is largest when the expected value is somewhere in the middle of the range of all possible values taken. Add a variance function to evaluate its effects of residuals.
+
+```{r, apply-varFunc, warning=FALSE}
+# Transform data
+lmm.L.1 <- update(lmm.L, weights=varConstPower())
+plot(lmm.L.1, residuals(.) ~ fitted(.), main="Light Phase: Variance Function Added Level = 1", abline = 0)
+
+zz <- AIC(lmm.L, lmm.L.1)
+normAIC(zz)
+```
+
+Evaluate the normality of within group resiudals.
+
+```{r, qqnorm-L}
+qqnorm(lmm.L, ~resid(.), abline=c(0,1), main="Light Model")
+qqnorm(lmm.L.1, ~resid(.), abline=c(0,1), main="Light Model with VarFunc")
+```
+
+Evaluate qq plots for the Dark phase model.
+
+```{r, qqnorm-D}
+qqnorm(lmm.D, ~resid(.), main="Dark Model")
+```
+
+Attempt to fit variance function to Dark model.
+
+```{r, varFunc-D}
+ctrl <- lmeControl(opt = "optim", niterEM = 200, msTol = 1e-10, msMaxIter = 10000, apVar = FALSE)
+
+lmm.D.1 <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+             data = Dark.sqrt,
+             random = reStruct(~poly(t,degree=2,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+             correlation = corAR1(,form=~t|fishID),
+             weights = varConstPower(),
+             method = "ML",
+             control = ctrl)
+
+zz <- AIC(lmm.D, lmm.D.1)
+normAIC(zz)
+```
+
+```{r, qqnorm-D-var}
+qqnorm(lmm.D.1, ~resid(.), main="Dark Model w/ varFunc")
+plot(lmm.D.1)
+```
+
+Evaluate effect of variance function addition on parameter estimates.
+
+```{r, create-intervals-lmmL}
+int.lmm.L <- intervals(lmm.L, which="fixed")
+int.lmm.L.1 <- intervals(lmm.L.1, which="fixed")
+
+int.list.L <- lapply(list(int.lmm.L$fixed,int.lmm.L.1$fixed), function(int.df) {
+  dt <- as.data.table(int.df)
+  concs <- unique(data$conc)
+  dt[, conc := c(concs,0,concs,concs[-1])]
+  dt[, param := c(rep("B_0",6),"B_1","B_2",rep("B_1",5),rep("B_2",5))]
+})
+
+int.dt.L <- do.call('rbind', int.list.L)
+int.dt.L[, model := rep(c("No Var Func","Var Func"),each=18)]
+```
+```{r, plot-intervals-lmmL-lmmLstar}
+ggplot(int.dt.L, aes(x=est.,y=log10(conc),color=model)) +
+  geom_point() +
+  geom_errorbar(aes(xmin=lower, xmax=upper)) +
+  facet_wrap(vars(param), scales="free_x") +
+  geom_vline(xintercept=0)
+```
+
+For Light phase data the effect on parameter estimates is visually apparent.
+
+Evaluate for Dark models.
+
+```{r, create-intervals-lmmD}
+int.lmm.D <- intervals(lmm.D, which="fixed")
+int.lmm.D.1 <- intervals(lmm.D.1, which="fixed")
+
+int.list.D <- lapply(list(int.lmm.D$fixed,int.lmm.D.1$fixed), function(int.df) {
+  dt <- as.data.table(int.df)
+  concs <- unique(data$conc)
+  dt[, conc := c(concs,0,concs,concs[-1])]
+  dt[, param := c(rep("B_0",6),"B_1","B_2",rep("B_1",5),rep("B_2",5))]
+})
+
+int.dt.D <- do.call('rbind', int.list.D)
+int.dt.D[, model := rep(c("No Var Func","Var Func"),each=18)]
+```
+```{r, plot-intervals-lmmD-lmmDstar}
+ggplot(int.dt.D, aes(x=est.,y=log10(conc),color=model)) +
+  geom_point() +
+  geom_errorbar(aes(xmin=lower, xmax=upper)) +
+  facet_wrap(vars(param), scales="free_x") +
+  geom_vline(xintercept=0)
+```
+ 
+ For Dark data estimates don't really change.

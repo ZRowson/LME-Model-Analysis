@@ -1,0 +1,8 @@
+"0","c <- fixedEf.D[1]"
+"0","b <- fixedEf.D[11]"
+"0","a <- fixedEf.D[12]"
+"0","f <- function(x) c + (b*x) + (a*(x^2))"
+"0",""
+"0",""
+"0","ctrlFit <- data.frame(""t"" = t,"
+"0","             ""fit"" = f(t))"

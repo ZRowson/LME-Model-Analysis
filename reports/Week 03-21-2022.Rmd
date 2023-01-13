@@ -1,0 +1,291 @@
+---
+title: "Week 03-21-2022 LME Update"
+author: "Zachary Rowson"
+date: "3/25/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+library(nlme)
+library(data.table)
+library(ggplot2)
+```
+
+## Introduction
+
+In this document I will be applying LMEs to raw, log10() and half power transformed Loperamide exposure Light phase data.
+
+## Untransformed data
+
+For untransformed data I am able to fit models with random effects for all 2nd order polynomial terms
+
+Load Data.
+
+```{r}
+load("../data/Padilla_DNT60_Loperamide.rda")
+
+# Split Light
+data <- copy(Padilla_DNT60_Loperamide)
+data.L <- Padilla_DNT60_Loperamide[t%in%11:30]
+
+# Shift time measurements and save concentration as a factor
+data.L$t <- data.L$t - min(data.L$t)
+data.L$conc <- as.factor(data.L$conc)
+
+# Identify individuals to remove
+remove <- Padilla_DNT60_Loperamide[is.na(y), unique(fishID)]
+```
+
+Declare hierarchical structure.
+
+```{r}
+nest.L <- groupedData(y ~ t | fishID, data = data.L[!(fishID%in%remove)], order.groups = FALSE)
+```
+
+Specify parameters for optimization procedure
+
+```{r}
+ctrl <- lmeControl(opt = "optim", niterEM = 200, msTol = 1e-20, msMaxIter = 200)
+```
+
+Fit models with increasing number of random effects
+
+```{r, message=FALSE, warning=FALSE}
+lmm1 <- lme(y ~  conc*poly(t,degree=2,raw=TRUE),
+            correlation = corAR1(, form = ~ t | fishID),
+            random = reStruct(~1|fishID,REML=FALSE,pdClass="pdSymm"),
+            method = "ML",
+            control = ctrl,
+            data = nest.L)
+lmm2 <- lme(y ~ conc*poly(t,degree=2,raw=TRUE),
+            correlation = corAR1(, form = ~ t | fishID),
+            random = reStruct(~poly(t,degree=1,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+            method = "ML",
+            control = ctrl,
+            data = nest.L)
+lmm3 <- lme(y ~ conc*poly(t,degree=2,raw=TRUE),
+            correlation = corAR1(, form = ~ t | fishID),
+            random = reStruct(~poly(t,degree=2,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+            method = "ML",
+            control = ctrl,
+            data = nest.L)
+```
+
+Evaluate approximate Variance Covariance Matrix. If "Non-postive definite approximate variance-covariance" error appears, model$apVar will be of character type.
+
+```{r}
+is.character(lmm1$apVar)
+is.character(lmm2$apVar)
+is.character(lmm3$apVar)
+```
+
+All models produce non-singular results. Evaluate which is best.
+
+```{r, echo = FALSE}
+normAIC <- function(zz) {
+    zz$AIC <- zz$AIC - min(zz$AIC)
+    indx <- order(zz$AIC)
+    zz[indx,]
+}
+```
+
+```{r}
+zz <- AIC(lmm1, lmm2, lmm3)
+normAIC(zz)
+```
+
+
+Visualize the best fit at the level of the individual.
+
+```{r}
+predict.lmm3 <- augPred(lmm3)
+sample.fish <- sample( unique(predict.lmm3$.groups), 28 )
+
+plot( predict.lmm3[predict.lmm3$.groups%in%sample.fish,] )
+```
+
+These fits look really good. Evaluate the random effects structure.
+
+```{r}
+lmm3$modelStruct$reStruct
+```
+
+Observe the high degree of correlation between random effects. Side note: maybe we could return to using orthogonal polynomials as a way to combat this. I believe that when fitting transformed data, the strong correlation of random effects becomes more problematic.
+
+
+## Fit to Half Power Tranformed data
+
+Transform data
+
+```{r}
+# Apply square root to movement data
+data.L.sqrt <- Padilla_DNT60_Loperamide[t%in%11:30]
+data.L.sqrt[, sqrty := sqrt(y)]
+
+# Shift time measurements and save concentration as a factor
+data.L.sqrt$t <- data.L.sqrt$t - min(data.L.sqrt$t)
+data.L.sqrt$conc <- as.factor(data.L.sqrt$conc)
+```
+
+Specify heirarchical structure
+```{r}
+nest.L.sqrt <- groupedData(sqrty ~ t | fishID, data = data.L.sqrt[!(fishID%in%remove)], order.groups = FALSE)
+```
+
+Fit models using same optimization parameters as untransformed data.
+
+```{r, sqrt-models ,message=FALSE, warning=FALSE}
+ctrl <- lmeControl(opt = "optim", niterEM = 200, msTol = 1e-20, msMaxIter = 200) # Same as above, shown for clarity
+
+lmm1.sqrt <- lme(sqrty ~  conc*poly(t,degree=2,raw=TRUE),
+                correlation = corAR1(, form = ~ t | fishID),
+                random = reStruct(~1|fishID,REML=FALSE,pdClass="pdSymm"),
+                method = "ML",
+                control = ctrl,
+                data = nest.L.sqrt)
+lmm2.sqrt <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+                 correlation = corAR1(, form = ~ t | fishID),
+                 random = reStruct(~poly(t,degree=1,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+                 method = "ML",
+                 control = ctrl,
+                 data = nest.L.sqrt)
+lmm3.sqrt <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+                 correlation = corAR1(, form = ~ t | fishID),
+                 random = reStruct(~poly(t,degree=2,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+                 method = "ML",
+                 control = ctrl,
+                 data = nest.L.sqrt)
+```
+
+Evaluate approximate Variance Covariance Matrix. If "Non-postive definite approximate variance-covariance" error appears, model$apVar will be of character type.
+
+```{r}
+is.character(lmm1.sqrt$apVar)
+is.character(lmm2.sqrt$apVar)
+is.character(lmm3.sqrt$apVar)
+```
+
+All models produce non-singular results. Evaluate which is best.
+
+```{r}
+zz <- AIC(lmm1.sqrt, lmm2.sqrt, lmm3.sqrt)
+normAIC(zz)
+```
+
+Quadratic random term become obsolete.
+
+Visualize both lmm2.sqrt and lmm3.sqrt fits to 1/2 power data by individual. lmm2.sqrt has no random quadratic term.
+
+Random 1st degree polynomial.
+
+```{r}
+predict.lmm2.sqrt <- augPred(lmm2.sqrt)
+sample.fish <- sample( unique(predict.lmm2.sqrt$.groups), 28 )
+
+plot( predict.lmm2.sqrt[predict.lmm2.sqrt$.groups%in%sample.fish,] )
+```
+
+Random 2nd degree polynomial,
+
+```{r}
+predict.lmm3.sqrt <- augPred(lmm3.sqrt)
+sample.fish <- sample( unique(predict.lmm3.sqrt$.groups), 28 )
+
+plot( predict.lmm3.sqrt[predict.lmm3.sqrt$.groups%in%sample.fish,] )
+```
+
+These models don't look as nice as the fits to untransformed data. There might be value in re-evaluating the fixed effects of the model. Visualization of means of transformed data by time period will be a good place to start.
+
+I do not know much of anything about AIC. I wonder if AIC is choosing lmm2.sqrt because there are less parameters combined with a random quadratic not providing much of a reduction to the RMSE of the model (or whatever metric is used to evaluate scale of residuals).
+
+Look at correlation of random effects within lmm2.sqrt and lmm3.sqrt.
+
+```{r}
+lmm2.sqrt$modelStruct$reStruct
+lmm3.sqrt$modelStruct$reStruct
+```
+Notice the high strong correlation between the random effects. Does this imply that some random effects become redundant? Yet we see an improvement of fit when random slope is included. Modelling orthogonal coefficients would likely help, though this produces an obvious detriment for experiment to experiment comparison of parameters.
+
+## Fit to Logarithmically Transformed Data (Base 10)
+
+```{r}
+# Apply log base 10 to movement data
+data.L.log10 <- Padilla_DNT60_Loperamide[t%in%11:30]
+data.L.log10[, logy := log10(y + 1)]
+
+# Shift time measurements and save concentration as a factor
+data.L.log10$t <- data.L.log10$t - min(data.L.log10$t)
+data.L.log10$conc <- as.factor(data.L.log10$conc)
+```
+
+Specify heirarchical structure
+```{r}
+nest.L.log10 <- groupedData(logy ~ t | fishID, data = data.L.log10[!(fishID%in%remove)], order.groups = FALSE)
+```
+
+Progressively add random effects.
+
+```{r,message=FALSE, warning=FALSE}
+ctrl <- lmeControl(opt = "optim", niterEM = 200, msTol = 1e-20, msMaxIter = 1000) # Increase number of iterations due to non-convergence (not shown)
+
+lmm1.log10 <- lme(logy ~  conc*poly(t,degree=2,raw=TRUE),
+                correlation = corAR1(, form = ~ t | fishID),
+                random = reStruct(~1|fishID,REML=FALSE,pdClass="pdSymm"),
+                method = "ML",
+                control = ctrl,
+                data = nest.L.log10)
+lmm2.log10 <- lme(logy ~ conc*poly(t,degree=2,raw=TRUE),
+                 correlation = corAR1(, form = ~ t | fishID),
+                 random = reStruct(~poly(t,degree=1,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+                 method = "ML",
+                 control = ctrl,
+                 data = nest.L.log10)
+lmm3.log10 <- lme(logy ~ conc*poly(t,degree=2,raw=TRUE),
+                 correlation = corAR1(, form = ~ t | fishID),
+                 random = reStruct(~poly(t,degree=2,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+                 method = "ML",
+                 control = ctrl,
+                 data = nest.L.log10)
+```
+
+Evaluate approximate Variance Covariance Matrix. If "Non-postive definite approximate variance-covariance" error appears, model$apVar will be of character type.
+
+```{r}
+is.character(lmm1.log10$apVar)
+is.character(lmm2.log10$apVar)
+is.character(lmm3.log10$apVar)
+```
+
+Inclusion of random 2nd degree polynomial produces a singular variance covariance matrix. Try increasing tolerance.
+
+```{r, message=FALSE, warning=FALSE}
+ctrl1 <- lmeControl(opt = "optim", niterEM = 200, msVerbose= TRUE, msTol = 1e-30, msMaxIter = 1000) # Increase tolerance
+lmm3.log10.1 <- lme(logy ~ conc*poly(t,degree=2,raw=TRUE),
+                     correlation = corAR1(, form = ~ t | fishID),
+                     random = reStruct(~poly(t,degree=2,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+                     method = "ML",
+                     control = ctrl1,
+                     data = nest.L.log10)
+is.character(lmm3.log10.1$apVar)
+```
+
+```{r,message=FALSE, warning=FALSE}
+ctrl2 <- lmeControl(opt = "optim", niterEM = 10000, msVerbose= TRUE, msTol = 1e-60, msMaxIter = 1000, maxIter = 1000, minAbsParApVar = 5e-6,
+                    allow.n.lt.q = TRUE) # Increase other parameters
+lmm3.log10.2 <- lme(logy ~ conc*poly(t,degree=2,raw=TRUE),
+                     correlation = corAR1(, form = ~ t | fishID),
+                     random = reStruct(~poly(t,degree=2,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+                     method = "ML",
+                     control = ctrl2,
+                     data = nest.L.log10)
+is.character(lmm3.log10.1$apVar)
+```
+
+As of yet I can not get the model be fit. Look at correlation of random effects in first attempt to fit lmm3.log10 (random second order polynomial).
+
+```{r}
+lmm3.log10$modelStruct$reStruct
+```
+
+Correlation isn't much different than models with square root tranformed data. My guess is that decreasing magnitude of the response as power applied is decreased results in smaller estimations for the standard deviation of random effects and covariance between random effects. Once the magnitude of these effects becomes small enough, optimization method will stop trying to produce an estimate. I will work on this more next week, Zach.

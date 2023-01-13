@@ -1,0 +1,1 @@
+"0","qqnorm(resid(lmm.L.star), main=""Normal Q-Q Plot: W/In Group Resid Sim Light"")"

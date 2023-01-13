@@ -1,0 +1,7 @@
+"0","# Apply 4th root to movement data"
+"0","data.L.4rt <- Padilla_DNT60_Loperamide[t%in%11:30]"
+"0","data.L.4rt[, rty := (y^(1/4))]"
+"0",""
+"0","# Shift time measurements and save concentration as a factor"
+"0","data.L.4rt$t <- data.L.4rt$t - min(data.L.4rt$t)"
+"0","data.L.4rt$conc <- as.factor(data.L.4rt$conc)"

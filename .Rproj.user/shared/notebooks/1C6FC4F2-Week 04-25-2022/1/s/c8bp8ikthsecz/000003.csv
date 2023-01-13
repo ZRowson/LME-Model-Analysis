@@ -1,0 +1,1 @@
+"0","to.plot[(abs(to.plot$stResid) > 2),]"

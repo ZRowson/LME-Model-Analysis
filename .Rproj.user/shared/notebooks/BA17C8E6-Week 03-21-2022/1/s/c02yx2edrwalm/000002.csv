@@ -1,0 +1,2 @@
+"0","zz <- AIC(lmm1, lmm2, lmm3)"
+"0","normAIC(zz)"

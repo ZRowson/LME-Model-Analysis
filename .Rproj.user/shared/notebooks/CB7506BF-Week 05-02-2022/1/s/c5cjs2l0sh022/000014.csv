@@ -1,0 +1,2 @@
+"0","par(mfrow=c(1,2))"
+"0","qqnorm(ranef(lmm1.D)[,1], main=""Normal Q-Q Plot: REML b_0"")"

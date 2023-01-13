@@ -1,0 +1,8 @@
+"0","int.lmm3.L <- intervals(lmm3.L, which=""fixed"")"
+"0",""
+"0","int.lmm3.L.dt <- as.data.table(int.lmm3.L$fixed)"
+"0","int.lmm3.L.dt[, conc := c(concs,0,concs,concs[-1])]"
+"0","int.lmm3.L.dt[, param := c(rep(""B_0"",10),""B_1"",""B_2"",rep(""B_1"",9),rep(""B_2"",9))]"
+"0",""
+"0","int.dt.L2 <- rbind(int.lmm2.L.dt,int.lmm3.L.dt)"
+"0","int.dt.L2[, model := rep(c(""lmm2.L"",""lmm3.L""),each=30)]"

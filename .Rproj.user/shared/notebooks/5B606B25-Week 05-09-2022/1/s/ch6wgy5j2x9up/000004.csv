@@ -1,0 +1,8 @@
+"0","# Merge new data with descriptors"
+"0","descriptors.D <- unique( data.D.sqrt[,.(srcf,acid,cpid,apid,rowi,coli,well_loc,wllt,wllq,conc,fishID)] )[!fishID%in%remove]"
+"0","data.D.star <- merge(descriptors.D, data.star.D, by=""fishID"")"
+"0",""
+"0","# Format data"
+"0","melt.D.star <- melt(data.D.star, id.vars = colnames(data.D.star)[1:11], variable.name = ""t"", value.name = ""sqrty"")"
+"0","melt.D.star[, `:=` (srcf=""Data Simulation"", t=as.numeric(gsub(""X"","""",t)))][, t:= t-mean(t)]"
+"0","head(melt.D.star)"

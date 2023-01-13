@@ -1,0 +1,169 @@
+---
+title: "Week 04-04-2022 LME Update"
+author: "Zachary Rowson"
+date: "04/04/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+library(nlme)
+library(data.table)
+library(ggplot2)
+```
+
+## Introduction
+
+In this document I will be evaluating the residuals of models fit to data of various transformed power.
+
+## Create initial models
+
+Data upload and transformation will be hidden.
+```{r,raw-upload, echo = FALSE}
+load("../data/Padilla_DNT60_Loperamide.rda")
+
+# Split Light
+data <- copy(Padilla_DNT60_Loperamide)
+data.L <- Padilla_DNT60_Loperamide[t%in%11:30]
+
+# Shift time measurements and save concentration as a factor
+data.L$t <- data.L$t - min(data.L$t)
+data.L$conc <- as.factor(data.L$conc)
+
+# Identify individuals to remove
+remove <- Padilla_DNT60_Loperamide[is.na(y), unique(fishID)]
+```
+
+```{r, aic-func, echo = FALSE}
+normAIC <- function(zz) {
+    zz$AIC <- zz$AIC - min(zz$AIC)
+    indx <- order(zz$AIC)
+    zz[indx,]
+}
+```
+
+
+```{r, data-transform, echo = FALSE}
+# Apply square root to movement data
+data.L.sqrt <- Padilla_DNT60_Loperamide[t%in%11:30]
+data.L.sqrt[, sqrty := sqrt(y)]
+
+# Shift time measurements and save concentration as a factor
+data.L.sqrt$t <- data.L.sqrt$t - min(data.L.sqrt$t)
+data.L.sqrt$conc <- as.factor(data.L.sqrt$conc)
+
+# Apply 4th root to movement data
+data.L.4rt <- Padilla_DNT60_Loperamide[t%in%11:30]
+data.L.4rt[, rty := (y^(1/4))]
+
+# Shift time measurements and save concentration as a factor
+data.L.4rt$t <- data.L.4rt$t - min(data.L.4rt$t)
+data.L.4rt$conc <- as.factor(data.L.4rt$conc)
+
+# Apply log base 10 to movement data
+data.L.log10 <- Padilla_DNT60_Loperamide[t%in%11:30]
+data.L.log10[, logy := log10(y + 1)]
+
+# Shift time measurements and save concentration as a factor
+data.L.log10$t <- data.L.log10$t - min(data.L.log10$t)
+data.L.log10$conc <- as.factor(data.L.log10$conc)
+```
+
+```{r, hier-struct, echo = FALSE}
+nest.L.sqrt <- groupedData(sqrty ~ t | fishID, data = data.L.sqrt[!(fishID%in%remove)], order.groups = FALSE)
+nest.L.4rt <- groupedData(rty ~ t | fishID, data = data.L.4rt[!(fishID%in%remove)], order.groups = FALSE)
+nest.L.log10 <- groupedData(logy ~ t | fishID, data = data.L.log10[!(fishID%in%remove)], order.groups = FALSE)
+```
+
+Fit same model to all transformed datasets and visualize residuals.
+
+```{r, models ,message=FALSE, warning=FALSE}
+ctrl <- lmeControl(opt = "optim", niterEM = 200, msTol = 1e-20, msMaxIter = 1000) # Same as above, shown for clarity
+
+lmm3.sqrt <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+                 correlation = corAR1(, form = ~ t | fishID),
+                 random = reStruct(~poly(t,degree=2,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+                 method = "ML",
+                 control = ctrl,
+                 data = nest.L.sqrt)
+lmm3.4rt <- lme(rty ~ conc*poly(t,degree=2,raw=TRUE),
+                 correlation = corAR1(, form = ~ t | fishID),
+                 random = reStruct(~poly(t,degree=2,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+                 method = "ML",
+                 control = ctrl,
+                 data = nest.L.4rt)
+lmm3.log10 <- lme(logy ~ conc*poly(t,degree=2,raw=TRUE),
+                 correlation = corAR1(, form = ~ t | fishID),
+                 random = reStruct(~poly(t,degree=2,raw=TRUE)|fishID,REML=FALSE,pdClass="pdSymm"),
+                 method = "ML",
+                 control = ctrl,
+                 data = nest.L.log10)
+
+```
+
+Evaluate the normality of the residuals for the subject specific and population averaged models. All transformations seem to have better fits when looking at subject level models (level=1). 
+
+Square root data appears to produce residuals that fall on the line of unity, but there is a high degree of skew towards large values. Other transformations produce more symmetric residuals, but with strange behavior.
+
+```{r, eval-norm-resid-0, echo = FALSE}
+
+layout.mat <- matrix(c(1,1,2,2,0,3,3,0),
+                      nrow=2, ncol=4, byrow=TRUE)
+layout(mat = layout.mat)
+qqnorm(resid(lmm3.sqrt,level=0), main = "Normal Q-Q Plot Level=0: lmm3.sqrt")
+qqline(resid(lmm3.sqrt, level=0))
+qqnorm(resid(lmm3.4rt,level=0), main = "Normal Q-Q Plot Level=0: lmm3.4rt")
+qqline(resid(lmm3.4rt, level=0))
+qqnorm(resid(lmm3.log10,level=0), main = "Normal Q-Q Plot Level=0: lmm3.log10")
+qqline(resid(lmm3.log10, level=0))
+```
+```{r, eval-norm-resid-1, echo = FALSE}
+
+layout.mat <- matrix(c(1,1,2,2,0,3,3,0),
+                      nrow=2, ncol=4, byrow=TRUE)
+layout(mat = layout.mat)
+qqnorm(resid(lmm3.sqrt), main = "Normal Q-Q Plot Level=1: lmm3.sqrt")
+qqline(resid(lmm3.sqrt))
+qqnorm(resid(lmm3.4rt), main = "Normal Q-Q Plot Level=1: lmm3.4rt")
+qqline(resid(lmm3.4rt))
+qqnorm(resid(lmm3.log10), main = "Normal Q-Q Plot Level=1: lmm3.log10")
+qqline(resid(lmm3.log10))
+```
+Evaluate population averaged model residuals (level=0) by time period. There seems to be some amount of heteroscedacticity for all transformations with variance increasing with time. We may be able to deal with this. There is also an obvious decrease in skew with time. These graphics seem to show that residuals become most symmetric with decreasing power transformation. However the distributions of residuals by time become more variable.
+
+```{r echo=FALSE, resid-by-time, message=FALSE}
+layout(mat = layout.mat)
+plot(lmm3.sqrt, resid(.,level=0) ~ as.numeric(t), abline = c(-2,0,2), main="Residuals by Time Level=0: lmm3.sqrt")
+plot(lmm3.4rt, resid(.,level=0) ~ as.numeric(t), abline = c(-1,0,1), main="Residuals by Time Level=0: lmm3.4rt")
+plot(lmm3.log10, resid(.,level=0) ~ as.numeric(t), abline = c(-0.5,0,0.5), main="Residuals by Time Level=0: lmm3.log10")
+```
+
+Evaluate residuals relationship to concentration. It seems that at high concentration, where hypoactivity appears, model fits data poorly. hopefully this will not have an effect on the detection of chemical activity. Data appears to be fit to values lower than the true values taken. However, this could be due to a high level of skew in the data due to zero or near-zero values. Could error of the fits be used to evaluate chemical effect, haha.
+
+```{r, resid-by-conc, echo=FALSE}
+plot(lmm3.sqrt, resid(.,level=0) ~ as.numeric(conc), abline = 0, main="Residuals by Concentration Level=0: lmm3.sqrt")
+plot(lmm3.4rt, resid(.,level=0) ~ as.numeric(conc), abline = 0, main="Residuals by Time Level=0: lmm3.4rt")
+plot(lmm3.log10, resid(.,level=0) ~ as.numeric(conc), abline = 0, main="Residuals by Time Level=0: lmm3.log10")
+```
+
+Finally, evaluate residuals against fitted values. Looks terrible. All models appear to fitting high and low values very poorly. Is there a way to adjust for this?
+
+```{r,resid-by-fitted, echo = FALSE}
+plot(lmm3.sqrt, resid(.,level=0) ~ fitted(.,level=0), abline = 0, main="Residuals vs. Fitted Values Level=0: lmm3.sqrt")
+plot(lmm3.4rt, resid(.,level=0) ~ fitted(.,level=0), abline = 0, main="Residuals vs. Fitted Values Level=0: lmm3.4rt")
+plot(lmm3.log10, resid(.,level=0) ~ fitted(.,level=0), abline = 0, main="Residuals vs. Fitted Values Level=0: lmm3.log10")
+```
+
+Take-away I will be using square root transformed data. I also suspect that high and low values are being modeled poorly because a cubic polynomial more accurately fits the data.
+
+```{r, pa-curve, echo = FALSE, warning=FALSE}
+avg_func <- function(...) {
+  avg <- mean(...,na.rm=TRUE)
+  SE <- stats::sd(..., na.rm=TRUE) / sqrt(length(...))
+  
+  data.frame(y=avg, ymin=avg-SE, ymax=avg+SE)
+}
+ggplot(data.L.sqrt, aes(x=t,y=sqrty,fill=conc,color=conc)) + 
+  stat_summary(fun.data=avg_func, geom="ribbon", alpha=0.5) +
+  stat_summary(fun.data=avg_func, geom="line")
+```

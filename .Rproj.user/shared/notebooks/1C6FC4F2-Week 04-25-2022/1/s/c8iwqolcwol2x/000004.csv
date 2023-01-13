@@ -1,0 +1,2 @@
+"0","sample <- sample(unique(Light.lam$fishID), 16)"
+"0","plot(Light.lam[Light.lam$fishID %in% sample,])"

@@ -1,0 +1,11 @@
+"0","fits1 <- lapply(nests, function(chm) lapply(chm, function(phase) {
+                                                    if (identical(chm[[1]],phase)) {
+                                                      lmm <- fitLME.log(phase, ctrl)
+                                                    } else {
+                                                      lmm <- fitLME.qtrt(phase, ctrl)
+                                                    }
+                        })
+          )
+"
+"2","Error in eval(predvars, data, env) : object 'logy' not found
+"

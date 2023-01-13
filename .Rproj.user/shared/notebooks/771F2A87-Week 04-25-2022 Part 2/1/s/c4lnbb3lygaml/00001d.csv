@@ -1,0 +1,5 @@
+"0",""
+"0","# Plot prediction intervals"
+"0","ggplot(new_data, aes(x=logConc,y=pred)) +"
+"0","  geom_point() +"
+"0","  geom_errorbar(aes(ymin=pred-cmult*SE_pred,ymax=pred+cmult*SE_pred))"

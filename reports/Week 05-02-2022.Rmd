@@ -1,0 +1,389 @@
+---
+title: "Week 05-02-2022"
+author: "Zachary Rowson"
+date: "5/6/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, cache=TRUE)
+library(nlme)
+library(lattice)
+library(data.table)
+library(ggplot2)
+library(gabi)
+```
+
+
+## Introduction
+
+This week I will model Tebuconazole in Dark.
+
+## Transform and Visualize Data
+
+Last week a square-root transformation was identified as optimal by for Box-Cox transformation. That transformation will be applied and the data visualized.
+
+```{r, iso-split-data, message=FALSE, warning=FALSE}
+load("../data/Padilla_DNT60_pmr0_long.rda")
+
+# Isolate Tebuconazole data
+chm <- "Tebuconazole"
+DNT60_data <- gabi::data_egids(DNT60pmr0_long)
+group <- DNT60_data[cpid==chm, unique(egid)]
+Padilla_DNT60_Tebuconazole <- DNT60_data[cpid==chm | (wllt=="v"&egid==group)]
+
+# Split data by experimental phase
+data <- copy(Padilla_DNT60_Tebuconazole)
+data.D <- Padilla_DNT60_Tebuconazole[t%in%31:50]
+
+# Shift time measurements and save concentration as a factor
+data.D$t <- data.D$t - mean(data.D$t)
+data.D$conc <- as.factor(data.D$conc)
+
+# Add well location, inside vs. outside, as co-variate
+data.D[rowi%in%c(1,8), well_loc:="outside"][coli%in%c(1,12), well_loc:="outside"]
+data.D[is.na(well_loc), well_loc:="inside"]
+
+# Transform data
+data.D.sqrt <- copy(data.D)
+data.D.sqrt[, sqrty := sqrt(y)]
+
+# Identify individuals to remove
+remove <- Padilla_DNT60_Tebuconazole[is.na(y), unique(fishID)]
+```
+```{r, plot-transf, warning=FALSE}
+## Colors for plotting
+n <- length( data.D[,unique(conc)] )
+colors <- viridis::viridis(n)
+
+# Sample sizes
+legend.labels <- data.D[wllq==1, unique(fishID), by=conc][, .N, by=conc][, paste0(conc, ", n=", N)]
+
+avg_func <- function(...) {
+  avg <- mean(...,na.rm=TRUE)
+  SE <- stats::sd(..., na.rm=TRUE) / sqrt(length(...))
+  
+  data.frame(y=avg, ymin=avg-SE, ymax=avg+SE)
+}
+
+ggplot(data.D.sqrt, aes(x=t,y=sqrty,fill=as.factor(conc),color=as.factor(conc))) + 
+  stat_summary(fun.data=avg_func, geom="ribbon", alpha=0.5) +
+  stat_summary(fun.data=avg_func, geom="line") +
+  scale_color_manual(values=colors, labels=legend.labels) +
+  scale_fill_manual(values=colors, labels=legend.labels) +
+  labs(title="Tebuconazole Dark Data: Square Root Transformed",
+       fill="Concentration", color="Concentration",
+       x="Time", y="(Speed (cm/2 min)) ^ (1/2)")
+```
+
+Visually it appears that a linear model may be sufficient for assessing the movement data. We will now consider multiple options.
+
+## Begin Fitting Models
+
+First evaluate potential correlation structures using 2nd degree polynomial fixed effects.
+
+```{r, hier-struct, echo=TRUE}
+Dark.sqrt <- groupedData(sqrty ~ t | fishID, data = as.data.frame(data.D.sqrt[!(fishID%in%remove)]), order.groups = FALSE)
+```
+```{r, aic-func}
+normAIC <- function(zz) {
+    zz$AIC <- zz$AIC - min(zz$AIC)
+    indx <- order(zz$AIC)
+    zz[indx,]
+}
+```
+```{r, gls-models-sqrt, echo=TRUE}
+gls <- gls(sqrty ~ poly(t,degree=2,raw=TRUE),
+           data = Dark.sqrt,
+           method = "ML")
+gls1 <- update(gls, correlation=corAR1(,form=~t|fishID))
+gls2 <- update(gls, correlation=corARMA(,form=~t|fishID,p=1,q=1))
+gls3 <- update(gls, correlation=corARMA(,form=~t|fishID,p=2,q=0))
+gls4 <- update(gls, correlation=corARMA(,form=~t|fishID,p=2,q=2))
+
+zz <- AIC(gls, gls1, gls2, gls3, gls4)
+normAIC(zz)
+```
+
+AR(1) correlation structure is found to be bet. In the past I've found that preference for one correlation structure over another tends to be fairly consistent regardless of chosen fixed or random effects. Thus this correlation model will be used for the rest of the report.
+
+Evaluate random effects.
+
+```{r, eval-REs, echo = TRUE, warning=FALSE}
+ctrl <- lmeControl(opt = "optim", niterEM = 200, msTol = 1e-20, msMaxIter = 1000, apVar = FALSE)
+
+lmm.D <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+            data = Dark.sqrt,
+            random = reStruct(~1|fishID,REML=TRUE,pdClass="pdSymm"),
+            correlation = corAR1(,form=~t|fishID),
+            method = "REML",
+            control = ctrl)
+lmm1.D <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+            data = Dark.sqrt,
+            random = reStruct(~poly(t,degree=1,raw=TRUE)|fishID,REML=TRUE,pdClass="pdSymm"),
+            correlation = corAR1(,form=~t|fishID),
+            method = "REML",
+            control = ctrl)
+lmm2.D <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),
+            data = Dark.sqrt,
+            random = reStruct(~poly(t,degree=2,raw=TRUE)|fishID,REML=TRUE,pdClass="pdSymm"),
+            correlation = corAR1(,form=~t|fishID),
+            method = "REML",
+            control = ctrl)
+lmm3.D <- lme(sqrty ~ conc*poly(t,degree=3,raw=TRUE),
+              data = Dark.sqrt,
+              random = reStruct(~poly(t,degree=3,raw=TRUE)|fishID,REML=TRUE,pdClass="pdSymm"),
+              correlation = corAR1(,form=~t|fishID),
+              method = "REML",
+              control = ctrl)
+
+zz <- AIC(lmm.D,lmm1.D,lmm2.D,lmm3.D)
+normAIC(zz)
+```
+
+Models with 1st and 2nd order random effects polynomials were nearly identical. Print the significance tests of the fixed effects for winning model to evaluate if polynomial fixed effects term is necessary.
+
+```{r, eval-fixed}
+summary(lmm1.D)$tTable[c(1,7,8),]
+```
+
+All fixed effects appear significant.
+
+## Compare Two Most Optimal Models
+
+Assess the change in estimator accuracy with inclusion of more random effects. We have performed this analysis before on Loperamide Light Data.
+
+```{r, create-intervals-lmm1-lmm2}
+int.lmm1 <- intervals(lmm1.D, which="fixed")
+int.lmm2 <- intervals(lmm2.D, which="fixed")
+
+int.list <- lapply(list(int.lmm1$fixed,int.lmm2$fixed), function(int.df) {
+  dt <- as.data.table(int.df)
+  concs <- unique(data$conc)
+  dt[, conc := c(concs,0,concs,concs[-1])]
+  dt[, param := c(rep("B_0",6),"B_1","B_2",rep("B_1",5),rep("B_2",5))]
+})
+
+int.dt <- do.call('rbind', int.list)
+int.dt[, model := rep(c("lmm1","lmm2"),each=18)]
+```
+```{r, plot-intervals-lmm1-lmm2}
+ggplot(int.dt, aes(x=est.,y=log10(conc),color=model)) +
+  geom_point() +
+  geom_errorbar(aes(xmin=lower, xmax=upper)) +
+  facet_wrap(vars(param), scales="free_x") +
+  geom_vline(xintercept=0)
+```
+
+Virtually no change. I think he determining factor will be if some other ezxposure data benefits immensely from the inclusion of a random quadratic term. If that is the case, then quadratic random effects term will be included. 
+
+For now we will stick to the model found optimal for this data set and evaluate the quality of the fit. 
+
+First visualize the fits.
+
+```{r, CI-func, echo=FALSE}
+# Evaluate predicted value at t=-9.5
+lme_fit <- function(model, t) {
+  conc <- levels(model$data$conc)
+  new_data <- expand.grid(t=t, conc=conc)
+  
+  # Predict
+  new_data$pred <- predict(model, new_data, level=0)
+  
+  # Extract model matrix for the data being fit, and use to extract varCov matrix of predictions
+  designMat <- model.matrix(formula(model)[-2], new_data)
+  predVar <- diag(designMat %*% vcov(model) %*% t(designMat))
+  
+  # Calculate SEs of fitted values and calculate CIs
+  new_data$SE <- sqrt(predVar)
+  new_data$upper <- new_data$pred + (2*new_data$SE)
+  new_data$lower <- new_data$pred - (2*new_data$SE)
+  
+  return(new_data)
+}
+```
+```{r, plot-fits, warning=FALSE}
+# Plot confidence intervals
+fitted_data <- lme_fit(lmm1.D, t=unique(lmm1.D$data$t))
+n <- length( data.D[,unique(conc)] )
+colors <- viridis::viridis(n)
+# Sample sizes
+legend.labels <- data.D[wllq==1, unique(fishID), by=conc][, .N, by=conc][, paste0(conc, ", n=", N)]
+
+ggplot(data.D.sqrt, aes(x=t,y=sqrty,group=conc)) + 
+  stat_summary(fun = mean, geom="line", color="grey") +
+  stat_summary(mapping=aes(color=conc), fun = mean, geom="point", size=1) +
+  geom_line(fitted_data, mapping=aes(x=t,y=pred,color=conc)) +
+  geom_ribbon(fitted_data, mapping=aes(y=pred,ymin=lower,ymax=upper,fill=conc), alpha=0.1) +
+  scale_color_manual(values=colors, labels=legend.labels) +
+  scale_fill_manual(values=colors, labels=legend.labels) +
+  labs(title="Tebuconazole Light Data and Models: Square-Root Transformed",
+       x="Time", y="Square-Root(y)")
+```
+
+Evaluate the residuals and fitted to observed values for sample level means by time period.
+
+```{r, sample-level-resid}
+means.Dark <- aggregate(Dark.sqrt$sqrty, list(conc=Dark.sqrt$conc,t=Dark.sqrt$t), mean)
+to.plot <- merge(means.Dark, fitted_data, by=c("conc","t"))
+to.plot$resid <- to.plot$x - to.plot$pred
+sigma <- stats::sd(to.plot$resid)
+to.plot$stResid <- to.plot$resid/sigma
+
+plot(to.plot$stResid ~ to.plot$pred, xlab="Fitted Values", ylab="Standardized Residuals", main="Tebuconazole Sample Level Residuals for Sample Time-period Means")
+abline(0,0,col="red")
+
+qqnorm(to.plot$resid, main="Tebuconazole: Residuals for Sample T-Period Means in Dark")
+qqline(to.plot$resid)
+```
+
+Residuals look pretty good. It appears that large values are not being fit as well. Evaluate if assumptions of the model are being met.
+
+## Evaluate Assumptions of LME Model Using Model Fit
+
+Evaluate assumptions of the model as recommended in _Mixed Effects Models in S and S-Plus_.
+
+Assumption 1: Within group errors are normal and i.i.d., with mean zero.
+
+To assess this we need to evaluate the normality of within group errors, the homoscedasticity of those error by group, the means of those errors, and the within-group correlation of those errors (which we addressed with an AR(1) model).
+
+Evaluate normality of residuals.
+
+```{r, wIn-grp-resid}
+qqnorm(resid(lmm1.D), main="Normal Q-Q Plot: W/In Group Resid")
+qqline(resid(lmm1.D))
+```
+
+Plot indicates that residuals have heavier tails than expected. _Mixed-Effects Models in S and S-Plus_ suggest that this is an indication that a different model for the within group residuals would be appropriate. We already know this as Woody has shown that the residuals appear to be well modeled with some kind of truncated distribution. Book indicates that the apparent asymmetry in the model could produce an effect on the fixed effects estimates for the data and lead to more conservative tests.
+
+Is modeling of the residuals differently something that we can accomplish? Maybe with a GLMM?
+
+Assess the assumption of homoscedastic within group errors.
+
+Evaluate within-group errors means and variance by plotting all within group errors stratified by group (fishID).
+
+```{r, eval-wIn-group-hetero}
+plot(lmm1.D, fishID ~ resid(., level=1), abline =  0)
+```
+
+Error means appear to be nearly centered at zero, but are errors are certainly not homoscedastic. Whether or not this variability in within group errors is attributable to sampling error, I don't know. 
+
+The error distributions appear skewed which observed in the qqplot above. Maybe optimization of the transformation parameter in terms of the within group errors, rather than for time periods should be our practice. I tried this outside of this report finding that the optimal transformation for Dark data remained the same. For Tebuconazole in Light it changed from -3/4 to -1/2. From now on normalization of within-group errors will be our practice.
+
+Begin assessing homoscedasticy of within group errors in terms of different co-variates.
+
+Plot residuals faceted by plate number.
+
+```{r, eval-apid}
+plot(lmm1.D, resid(.,level=1) ~ fitted(.,level=1) | apid, abline = 0)
+```
+
+Variability in residuals is fairly consistent by plate. It does not seem that an adjustment needs to be made for this co-variate.
+
+```{r, eval-well_loc-hetero}
+plot(lmm1.D, resid(.,level=1) ~ fitted(.,level=1) | well_loc, abline = 0)
+```
+
+It's hard for me to tell if well location is having an effect as sample sizes are different. However, sample sizes visualized are so large that we may be seeing a real difference. Interestingly enough range of fitted values don't appear different. Is this an indication that fixed effect of well location is unnecessary, or is it an indication that outside wells are being over-fit and inside wells under-fit?
+
+Evaluate heteroscedasticity with time.
+
+```{r, eval-t-hetero}
+plot(lmm1.D, resid(.,level=1) ~ t,
+     panel = function(x, y, ...) {
+              lattice::panel.grid()
+              panel.xyplot(x, y)
+              panel.loess(x, y, lty=2)
+              panel.abline(0, 0)
+     })
+```
+
+Interesting almost sinusoidal behavior in within group residuals with time. Whether or not this is due to randomness I am unsure, but you can convince yourself that it makes sense. Fish initially are moving with the same level of activity due to the startle. Once fish begin to relax, there is individual-to-individual variation in this behavior. Once baseline behavior is reached fish once again have the same level of activity.  
+
+Evaluate heteroscedascticity with concentration.
+
+```{r, wIn-group-resid-conc}
+plot(lmm1.D, resid(.) ~ fitted(.) | conc, abline = 0)
+```
+
+Fitted values are certainly different,  but we expect this. Heteroscedasticity is not apparent.
+
+**Take-aways:** The assumption of normal within group errors is certainly broken which we know. However, this could be having effects on fixed effects estimates and estimate accuracy, essentially reducing sensitivity. Adjusting for this with the use of GLMMS may be possible and beneficial.
+
+There is potential that an interesting behavior in time period variance is causing heteroscedasticity in within group and sample level residuals. However, this behavior may be subtle enough that it doesn't affect the outcome of the model.
+
+# Assess Assumptions on Random Effects
+
+Random effect are assumed to normally distributed with mean zero and a covariance matrix that is identical for all groups, and are independent for different groups. Departures from these assumptions are assessed using qq-plots and pair correlation plots to assess marginal normality, identify outliers, and check assumption of homogeneity of variance.
+
+```{r, norm-of-ranef}
+par(mfrow=c(1,2))
+qqnorm(ranef(lmm1.D)[,1], main="Normal Q-Q Plot: REML b_0")
+qqline(ranef(lmm1.D)[,1])
+qqnorm(ranef(lmm1.D)[,2], main="Normal Q-Q Plot: REML b_1")
+qqline(ranef(lmm1.D)[,2])
+```
+
+Random effects appear acceptably normal. Perform some kind of outlier identification.
+
+```{r}
+qqnorm(lmm1.D, ~ ranef(.), id=0.1)
+```
+
+It is reassuring to see that number of outliers is approximately symmetric from one end of the qq-line to the other.
+
+```{r, id-otliers}
+outliers <- rownames( ranef(lmm1.D)[order(ranef(lmm1.D)[,1]),][c(1:4,144:150),] )
+unique( data.D[fishID%in%outliers,-c(11,12,13)] )
+```
+
+Outliers are not predominantly occurring in any one concentration group, other than control which had a much larger sample size, which is reassuring. Continuing with the thought, assess the homogeneity of random effects by concentration group.
+
+```{r, homo-RE}
+pairs(lmm1.D, ~ranef(.) |conc)
+```
+
+Range of values is cerainly the same from concentration to concentration. You may be able to argue that concentration group 0.4 uM is less variable than others. Heterogeneity is not occurring in a concentration dependent way.
+
+**Take-Away:** Overall, assumptions on the random effects of the model appear to be adhered too.
+
+## Plot Values of Interest in Concentration-Response Mode
+
+Plot fixed effects parameters and associated confidence intervals in concentration-response mode and plot fitted values at t=-9.5.
+
+Fixed Effects.
+
+```{r, plot-intervals-final}
+ggplot(int.dt[model=="lmm1"&conc!=0], aes(y=est.,x=log10(conc))) +
+  geom_point() +
+  geom_errorbar(aes(ymin=lower, ymax=upper)) +
+  facet_wrap(vars(param), scales="free_y") +
+  geom_hline(yintercept=0) +
+  labs(title = "Model Params for Tebuconazole in Dark")
+```
+
+Fitted value at initial point of Dark phase.
+
+```{r, plot-initial-t, echo=TRUE}
+# Evaluate predicted value at t=-9.5
+conc <- levels(lmm1.D$data$conc)
+t <- -9.5
+new_data <- expand.grid(t=t, conc=conc)
+
+# Predict
+new_data$pred <- predict(lmm1.D, new_data, level=0)
+
+# Extract model matrix for the data being fit, and use to extract varCov matrix of predictions
+designMat <- model.matrix(formula(lmm1.D)[-2], new_data)
+predVar <- diag(designMat %*% vcov(lmm1.D) %*% t(designMat))
+new_data$SE <- sqrt(predVar)
+new_data$SE_pred <- sqrt(predVar + (lmm1.D$sigma)^2)
+
+# Plot confidence intervals
+cmult <- 2
+new_data$logConc <- log10( as.numeric(levels(new_data$conc)) )
+ggplot(new_data, aes(x=logConc,y=pred)) +
+  geom_point() +
+  geom_errorbar(aes(ymin=pred-cmult*SE,ymax=pred+cmult*SE)) +
+  labs(title="Model Fitted Value at Initial Time Period")
+```

@@ -1,0 +1,55 @@
+---
+title: "Week 04-25-2022 Part 2"
+author: "Zachary Rowson"
+date: "4/29/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, cache=TRUE)
+library(nlme)
+library(data.table)
+library(ggplot2)
+```
+
+## Introduction
+
+In this document I will detail efforts to construct confidence and prediction intervals about fitted values at t=-9.5 for all concentrations using Loperamide models.
+
+## Predict Values at t=-9.5
+
+```{r, load-models}
+lmm.L.REML <- readRDS("../fits/Loperamide_L_LME.rds")
+lmm.D.REML <- readRDS("../fits/Loperamide_D_LME.rds")
+```
+
+Create a data.frame of values to predict using LMEs fit to Loperamide exposure data.
+
+```{r, echo=TRUE}
+# Evaluate predicted value at t=-9.5
+conc <- levels(lmm.L.REML$data$conc)
+t <- -9.5
+new_data <- expand.grid(t=t, conc=conc)
+
+# Predict
+new_data$pred <- predict(lmm.L.REML, new_data, level=0)
+
+# Extract model matrix for the data being fit, and use to extract varCov matrix of predictions
+designMat <- model.matrix(formula(lmm.L.REML)[-2], new_data)
+predVar <- diag(designMat %*% vcov(lmm.L.REML) %*% t(designMat))
+new_data$SE <- sqrt(predVar)
+new_data$SE_pred <- sqrt(predVar + (lmm.L.REML$sigma)^2)
+
+# Plot confidence intervals
+cmult <- 2
+new_data$logConc <- log10( as.numeric(levels(new_data$conc)) )
+ggplot(new_data, aes(x=logConc,y=pred)) +
+  geom_point() +
+  geom_errorbar(aes(ymin=pred-cmult*SE,ymax=pred+cmult*SE))
+
+# Plot prediction intervals
+ggplot(new_data, aes(x=logConc,y=pred)) +
+  geom_point() +
+  geom_errorbar(aes(ymin=pred-cmult*SE_pred,ymax=pred+cmult*SE_pred))
+```
+

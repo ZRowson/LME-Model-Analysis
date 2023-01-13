@@ -1,0 +1,6 @@
+"0","lmm2.L.REML <- lme(sqrty ~ conc*poly(t,degree=2,raw=TRUE),"
+"0","            data = Light.sqrt,"
+"0","            random = reStruct(~poly(t,degree=1,raw=TRUE)|fishID,REML=TRUE,pdClass=""pdSymm""),"
+"0","            correlation = corAR1(,form=~t|fishID),"
+"0","            method = ""REML"","
+"0","            control = ctrl)"

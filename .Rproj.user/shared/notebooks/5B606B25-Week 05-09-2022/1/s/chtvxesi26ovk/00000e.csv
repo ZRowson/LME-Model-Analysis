@@ -1,0 +1,17 @@
+"0","logNormResid.hat.D <- as.data.frame( apply(normResid.hat.D, 2, function(col) {"
+"0","    transf <- exp(col)"
+"0","    transf <- transf - mean(transf)"
+"0","    (-1)*transf"
+"0","    })"
+"0","    )"
+"0",""
+"0","normResid.melt.D <- melt(as.data.table(normResid.hat.D), measure.vars=colnames(normResid.hat.D), variable.name=""t"", value.name=""y"")"
+"0","logNormResid.melt.D <- melt(as.data.table(logNormResid.hat.D), measure.vars=colnames(logNormResid.hat.D), variable.name=""t"", value.name=""y"")"
+"0","ggplot() +"
+"0","    geom_histogram(data=logNormResid.melt.D, mapping=aes(x=y), fill=""orange"", color=NA, alpha=0.3) +"
+"0","    geom_histogram(data=normResid.melt.D, mapping=aes(x=y), fill=""blue"", color=NA, alpha=0.3) +"
+"0","    facet_wrap(vars(t))"
+"2","`stat_bin()` using `bins = 30`. Pick better value with `binwidth`.
+"
+"2","`stat_bin()` using `bins = 30`. Pick better value with `binwidth`.
+"

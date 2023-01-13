@@ -1,0 +1,5 @@
+"0","int.lmm3.D <- intervals(lmm3.D.REML, which=""fixed"")"
+"0",""
+"0","int.lmm3.D.dt <- as.data.table(int.lmm3.D$fixed)"
+"0","int.lmm3.D.dt[, conc := c(concs,0,concs,concs[-1])]"
+"0","int.lmm3.D.dt[, param := c(rep(""B_0"",10),""B_1"",""B_2"",rep(""B_1"",9),rep(""B_2"",9))]"

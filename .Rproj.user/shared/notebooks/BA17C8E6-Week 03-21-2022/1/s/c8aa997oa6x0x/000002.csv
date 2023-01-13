@@ -1,0 +1,1 @@
+"0","nest.L.log10 <- groupedData(logy ~ t | fishID, data = data.L.log10[!(fishID%in%remove)], order.groups = FALSE)"

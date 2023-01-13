@@ -1,0 +1,4 @@
+"0","predict.lmm2.sqrt <- augPred(lmm2.sqrt)"
+"0","sample.fish <- sample( unique(predict.lmm2.sqrt$.groups), 28 )"
+"0",""
+"0","plot( predict.lmm2.sqrt[predict.lmm2.sqrt$.groups%in%sample.fish,] )"

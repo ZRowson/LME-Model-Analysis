@@ -1,0 +1,8 @@
+"0","ggplot(DNT60pmr0_long, aes(x=factor(t),y=logy)) +"
+"0","  geom_boxplot() +"
+"0","  labs(title = ""log10 Transformed Movement Data"","
+"0","       x = ""time"","
+"0","       y = ""log10(y)"")"
+"2","Warning:"
+"2"," Removed 27351 rows containing non-finite values (stat_boxplot).
+"

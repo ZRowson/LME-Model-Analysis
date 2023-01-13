@@ -1,0 +1,5 @@
+"0","conc <- rep(unique(data.L.sqrt$conc),each=20)"
+"0","fittedData1.L <- cbind(do.call('rbind',fittedData.L), pred4 = do.call('rbind',fittedData.L4)$pred4)"
+"0","fittedData2.L <- rbind(ctrlFit, fittedData1.L)"
+"0","fittedDF <- cbind(conc, fittedData2.L)"
+"0","fittedDF.long <- reshape(fittedDF, varying = c(""pred2"",""pred3"",""pred4""), v.names = ""y"", timevar =      ""model"",  direction = ""long"")"

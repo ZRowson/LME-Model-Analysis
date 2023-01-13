@@ -1,0 +1,2 @@
+"0","outliers <- rownames( ranef(lmm1.D)[order(ranef(lmm1.D)[,1]),][c(1:4,144:150),] )"
+"0","unique( data.D[fishID%in%outliers,-c(11,12,13)] )"

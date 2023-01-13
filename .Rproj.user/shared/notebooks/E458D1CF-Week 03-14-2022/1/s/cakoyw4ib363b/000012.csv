@@ -1,0 +1,10 @@
+"0","powerSD <- DNT60pmr0_long[, .(""SD"" = stats::sd(y,na.rm=TRUE),"
+"0","                         ""logSD"" = stats::sd(logy,na.rm=TRUE),"
+"0","                         ""sqrtSD"" = stats::sd(sqrty,na.rm=TRUE)), by = t]"
+"0","powerSDlong <- melt(powerSD, id.vars = ""t"")"
+"0","ggplot(powerSDlong[variable==""SD""], aes(x=(value)^2)) +"
+"0","  geom_histogram() +"
+"0","  labs(title = ""Distribution of Sample Variance for all time periods"","
+"0","       x = ""Var(data)"")"
+"2","`stat_bin()` using `bins = 30`. Pick better value with `binwidth`.
+"

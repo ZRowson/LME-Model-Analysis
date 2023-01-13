@@ -1,0 +1,2 @@
+"0","list.L.lam <- lmList(lamy ~ poly(t,degree=2,raw=TRUE), Light.lam)"
+"0","pairs(list.L.lam, id = 0.01)"

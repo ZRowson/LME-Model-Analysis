@@ -1,0 +1,1 @@
+"0","plot(lmm3.L.REML.2, resid(.,level=1) ~ fitted(.,level=1) | well_loc, abline = 0)"

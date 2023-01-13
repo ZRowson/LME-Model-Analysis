@@ -1,0 +1,3 @@
+"0","# Transform data"
+"0","data.D.sqrt <- copy(data.D)"
+"0","data.D.sqrt[, sqrty := sqrt(y)]"

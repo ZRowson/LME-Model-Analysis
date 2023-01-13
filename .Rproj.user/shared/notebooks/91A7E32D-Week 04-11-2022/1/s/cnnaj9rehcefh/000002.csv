@@ -1,0 +1,8 @@
+"0","base.unc <- gls(sqrty ~ poly(t,degree=2,raw=TRUE),"
+"0","            data = Dark.sqrt,"
+"0","            method = ""ML"")"
+"0","base1.unc <- update(base, correlation=corAR1(,form=~t|fishID))"
+"0","base2.unc <- update(base, correlation=corARMA(,form=~t|fishID,p=1,q=1))"
+"0",""
+"0","zz <- AIC(base.unc,base1.unc,base2.unc)"
+"0","normAIC(zz)"

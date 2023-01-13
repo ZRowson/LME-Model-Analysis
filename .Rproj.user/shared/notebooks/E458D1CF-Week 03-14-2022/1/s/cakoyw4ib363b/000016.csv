@@ -1,0 +1,6 @@
+"0","ggplot(powerSDlong[variable==""sqrtSD""], aes((value)^2)) +"
+"0","  geom_histogram() +"
+"0","  labs(title = ""Distribution of Sample Variance for all square root transformed time periods"","
+"0","        x = ""Var(sqrt(data))"")"
+"2","`stat_bin()` using `bins = 30`. Pick better value with `binwidth`.
+"

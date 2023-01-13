@@ -1,0 +1,1 @@
+"0","plot(lmm2.sqrt.L, resid(.,level=0) ~ fitted(.), abline = c(-0.5,0,0.5), main=""Residuals by Time Level=0: lmm2.L"")"

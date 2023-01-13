@@ -1,0 +1,6 @@
+"0","ggplot(powerSDlong[variable==""logSD""], aes((value)^2)) +"
+"0","  geom_histogram() +"
+"0","  labs(title = ""Distribution of Sample Variance for all log transformed time periods"","
+"0","        x = ""Var(log10(data))"")"
+"2","`stat_bin()` using `bins = 30`. Pick better value with `binwidth`.
+"

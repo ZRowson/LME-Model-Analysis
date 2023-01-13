@@ -1,0 +1,10 @@
+"0","lmm5 <- lme(sqrty ~ conc*poly(t,degree=6,raw=TRUE),
+            data = Light.sqrt,
+            random = reStruct(~poly(t,degree=6,raw=TRUE)|fishID,REML=FALSE,pdClass=""pdSymm""),
+            correlation = corAR1(,form=~t|fishID),
+            method = ""ML"",
+            control = ctrl)
+"
+"2","Error in logLik.reStruct(object, conLin) : 
+  NA/NaN/Inf in foreign function call (arg 3)
+"

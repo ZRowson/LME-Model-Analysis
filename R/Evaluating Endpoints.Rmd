@@ -1,0 +1,34 @@
+---
+title: "Evaluating gabi Endpoint Set's Ability to Model Zebrafish Behavior"
+author: "Zachary Rowson"
+date: "1/25/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+There are features of the larval Zebrafish startle response that we want to model. We have chosen these features because we believe they occur consistently enough that changes in these features could indicate chemical activity in an appropriate scenario.
+
+What are these features? Level of activity, response to stimulus, and acclimation to new environmental conditions.
+
+I believe that the current set of endpoints used to model these features is too large resulting in  increased false positive rate without significant increase in true positive rate. Removal of some endpoints from the set would not affect gabi's ability to detect change in behavior and would facilitate translation of endpoint activity to changes in zebrafish behavior. 
+
+I also believe that an essential feature of the LMR assay constructed by Padilla lab missed by the constructed endpoints is a measure of baseline behavior after stimulus.
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

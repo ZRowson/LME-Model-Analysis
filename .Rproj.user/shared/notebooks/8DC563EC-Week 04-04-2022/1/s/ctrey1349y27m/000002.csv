@@ -1,0 +1,2 @@
+"0","zz <- AIC(lmm1.sqrt, lmm2.sqrt, lmm3.sqrt)"
+"0","normAIC(zz)"

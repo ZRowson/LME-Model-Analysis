@@ -1,0 +1,102 @@
+---
+title: "Week of 03/14/2022"
+author: "Zachary Rowson"
+date: "3/18/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(ggplot2)
+```
+
+## What was accomplished
+
+Woody expressed concern about the heteroscedasticity of the sum movement by time distributions and the bounded distribution of residuals. In order to combat these issues Woody suggested power transforming the data either logarithmically or 1/2 power. Which transformation to perform needs to be determined.
+
+My approach to this question has been visual assessment of the time series data, evaluating the symmetry of movement by time distributions over all fish analyzed in the DNT60 experiment. Observing an apparent increase in symmetry of the distributions and decrease in the scale of the distribution of sample variances for all time period distributions after transformation may a good enough evaluation.
+
+I conclude, using these evaluation methods, That log transformation appears to be best. However, transforming Light and Dark data with different transformations may be best. 
+
+Fitting the transformed data with LMEs and evaluating the residuals of the fit would be a better evaluation.
+
+## Load Data
+```{r, warning=FALSE, message=FALSE}
+load("../data/Padilla_DNT60_pmr0_long.rda")
+DNT60pmr0_long[, logy := log10(y + 1)]
+DNT60pmr0_long[, sqrty := sqrt(y)]
+```
+
+## Evaluate transformation-induced symmetry
+
+Evaluate the symmetry of sum movement distributions by time after log10() or sqrt() transformation.
+
+```{r pressure, echo=FALSE, warning=FALSE, message=FALSE}
+ggplot(DNT60pmr0_long, aes(x=factor(t),y=y)) +
+  geom_boxplot() +
+  labs(title = "Movement Data",
+       x = "time",
+       y = "y")
+ggplot(DNT60pmr0_long, aes(x=factor(t),y=logy)) +
+  geom_boxplot() +
+  labs(title = "log10 Transformed Movement Data",
+       x = "time",
+       y = "log10(y)")
+ggplot(DNT60pmr0_long, aes(x=factor(t),y=sqrty)) +
+  geom_boxplot() +
+  labs(title = "Square Root Transformed Movement Data",
+       x = "time",
+       y = "sqrt(y)")
+```
+
+From these graphics both transformations appear to accomplish task of moving distributions away from the zero lower bound. From these graphics the square root transform appears to provide the greatest reduction in homoscedasticity, but this will be looked at in more depth later.
+
+To demonstrate the general effect of the transformations I will show histograms of two extreme time periods, the first period of Light and the last of Dark. We can assume that the other distributions exist somewhere between these two extremes.
+
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+ggplot(DNT60pmr0_long[t%in%c(11,31)], aes(x=y, fill=as.factor(t))) +
+  geom_histogram(position="identity", alpha = 0.4) + 
+  labs(title = "Extreme Sum Movement Distributions",
+       fill = "time period")
+ggplot(DNT60pmr0_long[t%in%c(11,31)], aes(x=logy, fill=as.factor(t))) +
+  geom_histogram(position="identity", alpha = 0.4) + 
+  labs(title = "log10 Transformed Extreme Sum Movement Distributions",
+       fill = "time period")
+ggplot(DNT60pmr0_long[t%in%c(11,31)], aes(x=sqrty, fill=as.factor(t))) +
+  geom_histogram(position="identity", alpha = 0.4) + 
+  labs(title = "Square Root Transformed Extreme Sum Movement Distributions",
+       fill = "time period")
+```
+
+From these graphics I would argue that log10 transformation will offer the greatest increase in symmetry. Both extremes being skewed in opposite directions may mean most distributions will fall somewhere in between and be relatively symmetric.
+
+Interestingly enough in the square root graphic we see what I believe is the effect of the Minimum Distance Moved filter. Boundary appears at 1.35 mm, which is not particularly important, but will likely appear in residual plots.
+
+## Evaluate Change in Heteroscedasticity
+
+Evaluate how distributions of sample variances (for each time period) change when transformation is applied. We would like to see a decrease in the spread of values.
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+powerSD <- DNT60pmr0_long[, .("SD" = stats::sd(y,na.rm=TRUE),
+                         "logSD" = stats::sd(logy,na.rm=TRUE),
+                         "sqrtSD" = stats::sd(sqrty,na.rm=TRUE)), by = t]
+powerSDlong <- melt(powerSD, id.vars = "t")
+ggplot(powerSDlong[variable=="SD"], aes(x=(value)^2)) +
+  geom_histogram() +
+  labs(title = "Distribution of Sample Variance for all time periods",
+       x = "Var(data)")
+ggplot(powerSDlong[variable=="logSD"], aes((value)^2)) +
+  geom_histogram() +
+  labs(title = "Distribution of Sample Variance for all log transformed time periods",
+        x = "Var(log10(data))")
+ggplot(powerSDlong[variable=="sqrtSD"], aes((value)^2)) +
+  geom_histogram() +
+  labs(title = "Distribution of Sample Variance for all square root transformed time periods",
+        x = "Var(sqrt(data))")
+```
+
+Bi-modality seems probable in untransformed data. This could be a result of light and dark data being evaluated together. May be application of different transformations to Light and Dark phase data would be a good approach?
+
+Log10 data appears to remove bimodality. Also scale is much smaller for logarithmic data. The magnitude of the differences in variance maybe something to take into account. Even though relative spread of sample variances for sqrt and log10 data may be the same, the magnitude of the differences between variances being smaller might improve fit.

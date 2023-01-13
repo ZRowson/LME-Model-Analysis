@@ -1,0 +1,4 @@
+"0","t <- unique(Light.sqrt$t)"
+"0","fixedEf.L <- fixef(lmm2.L.REML)"
+"2","Error in fixef(lmm2.L.REML) : object 'lmm2.L.REML' not found
+"

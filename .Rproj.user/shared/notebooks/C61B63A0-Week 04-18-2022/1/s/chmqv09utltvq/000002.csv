@@ -1,0 +1,7 @@
+"0","ggplot(y.hat.t_0.df, aes(y=mu.t_0,x=log10(conc))) +"
+"0","  geom_point() +"
+"0","  geom_errorbar(aes(ymin=(mu.t_0-CI.t_0), ymax=(mu.t_0+CI.t_0))) +"
+"0","  geom_hline(yintercept=0) +"
+"0","  labs(title = ""Dark LME Model: Fitted Value at Initial Time interval"","
+"0","       subtitle = ""Intersection of CI with y=0 indicates insignificant t-test p-value"","
+"0","       y = ""Fitted Value - (Control Fitted Value)"")"

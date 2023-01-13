@@ -1,0 +1,3 @@
+"0","nest.L.sqrt <- groupedData(sqrty ~ t | fishID, data = data.L.sqrt[!(fishID%in%remove)], order.groups = FALSE)"
+"0","nest.L.4rt <- groupedData(rty ~ t | fishID, data = data.L.4rt[!(fishID%in%remove)], order.groups = FALSE)"
+"0","nest.L.log10 <- groupedData(logy ~ t | fishID, data = data.L.log10[!(fishID%in%remove)], order.groups = FALSE)"

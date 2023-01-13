@@ -1,0 +1,4 @@
+"0","comparePred23.L <- comparePred(lmm2.L,lmm3.L)"
+"0","sample <- sample(comparePred23.L$.groups, 20)"
+"0",""
+"0","plot(comparePred23.L[comparePred23.L$.groups%in%sample,])"

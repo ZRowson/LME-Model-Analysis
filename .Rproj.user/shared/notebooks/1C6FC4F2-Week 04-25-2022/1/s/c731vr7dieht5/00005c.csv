@@ -1,0 +1,7 @@
+"0","#means.Light <- aggregate(Light.sqrt.1$sqrty, list(conc=Light.sqrt.1$conc,t=Light.sqrt.1$t), mean)"
+"0","to.plot <- merge(means.Light, fitted_data, by=c(""conc"",""t""))"
+"0","to.plot$resid <- to.plot$x - to.plot$pred"
+"0","sigma <- stats::sd(to.plot$resid)"
+"0","to.plot$stResid <- to.plot$resid/sigma"
+"0",""
+"0","plot(to.plot$stResid ~ to.plot$pred, xlab=""Fitted Valus"", ylab=""Standardized Residuals"", main=""Tebuconazole Sample Level Residuals for Sample Time-period Means"")"
